@@ -110,8 +110,10 @@ async def api_relief(req: ReliefRequest):
             replace_below=req.replace_below,
         )
 
+        import base64 as _b64
+        heightmap_b64 = _b64.b64encode(heightmap_path.read_bytes()).decode()
         return {
-            "heightmap_url": f"/api/files/{req.session_id}/heightmap.png",
+            "heightmap_url": f"data:image/png;base64,{heightmap_b64}",
             "stl_url":       f"/api/files/{req.session_id}/relief.stl",
         }
     except Exception as e:
