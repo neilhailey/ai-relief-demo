@@ -45,8 +45,12 @@ export default function App() {
       const data = await apiFetch<{ session_id: string; images: ImageOption[] }>(
         '/api/generate', { prompt },
       )
-      setSession({ sessionId: data.session_id, prompt, images: data.images,
-                   selectedIndex: null, heightmapUrl: null, stlUrl: null })
+      setSession({
+        sessionId: data.session_id, prompt,
+        // Prefix relative /api/files/... URLs with the backend base URL
+        images: data.images.map(img => ({ ...img, url: `${API}${img.url}` })),
+        selectedIndex: null, heightmapUrl: null, stlUrl: null,
+      })
       setStep(2)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong')
@@ -170,7 +174,7 @@ export default function App() {
         {step === 3 && session && selectedImage && (
           <PreviewStep
             prompt={session.prompt}
-            imageUrl={`${API}${selectedImage.url}`}
+            imageUrl={selectedImage.url}
             onCreateModel={handleCreateModel}
             onBack={() => setStep(2)}
             loading={loading}
@@ -181,7 +185,7 @@ export default function App() {
             prompt={session.prompt}
             heightmapUrl={session.heightmapUrl}
             stlUrl={session.stlUrl}
-            imageUrl={`${API}${selectedImage.url}`}
+            imageUrl={selectedImage.url}
             sessionId={session.sessionId}
             onStartOver={handleStartOver}
             onUpdateStl={handleUpdateStl}
