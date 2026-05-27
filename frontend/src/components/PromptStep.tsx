@@ -1,0 +1,157 @@
+import { useState, KeyboardEvent } from 'react'
+
+const EXAMPLES = [
+  'Celtic knot medallion',
+  'Howling wolf silhouette',
+  'Sunflower in bloom',
+  'Mountain landscape',
+  'Koi fish',
+  'Eagle in flight',
+  'Mandala pattern',
+  'Rose with thorns',
+]
+
+interface Props {
+  onGenerate: (prompt: string) => void
+  loading: boolean
+}
+
+export function PromptStep({ onGenerate, loading }: Props) {
+  const [prompt, setPrompt] = useState('')
+
+  function submit() {
+    const p = prompt.trim()
+    if (!p || loading) return
+    onGenerate(p)
+  }
+
+  function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      submit()
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 32, padding: '40px 24px' }}>
+
+      {/* Hero text */}
+      <div style={{ textAlign: 'center' }}>
+        <h1 style={{ fontSize: 38, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 10 }}>
+          Describe your design
+        </h1>
+        <p style={{ fontSize: 15, color: 'var(--text-dim)', maxWidth: 480 }}>
+          Type any idea — we'll generate two images and turn your favourite into a
+          carveable 3D relief STL, ready for your CNC machine.
+        </p>
+      </div>
+
+      {/* Input */}
+      <div style={{ width: '100%', maxWidth: 580 }}>
+        <textarea
+          value={prompt}
+          onChange={e => setPrompt(e.target.value)}
+          onKeyDown={onKey}
+          placeholder="e.g. Celtic knot with intricate interlacing patterns…"
+          disabled={loading}
+          rows={3}
+          style={{
+            width: '100%', resize: 'none', padding: '14px 16px',
+            background: 'var(--surface2)', border: '1.5px solid var(--border)',
+            borderRadius: var_radius, color: 'var(--text)', fontSize: 15,
+            outline: 'none', transition: 'border-color .2s', lineHeight: 1.5,
+          }}
+          onFocus={e => (e.currentTarget.style.borderColor = 'var(--accent)')}
+          onBlur={e => (e.currentTarget.style.borderColor = 'var(--border)')}
+        />
+
+        <button
+          onClick={submit}
+          disabled={!prompt.trim() || loading}
+          style={{
+            marginTop: 12, width: '100%', padding: '14px',
+            background: loading || !prompt.trim() ? 'var(--border)' : 'var(--accent)',
+            color: loading || !prompt.trim() ? 'var(--muted)' : '#fff',
+            border: 'none', borderRadius: var_radius,
+            fontSize: 15, fontWeight: 600,
+            transition: 'background .2s',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          }}
+        >
+          {loading ? (
+            <>
+              <Spinner /> Generating images…
+            </>
+          ) : (
+            '✦  Generate Images'
+          )}
+        </button>
+      </div>
+
+      {/* Example chips */}
+      <div style={{ textAlign: 'center', maxWidth: 580 }}>
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>Try an example:</p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
+          {EXAMPLES.map(ex => (
+            <button
+              key={ex}
+              onClick={() => !loading && setPrompt(ex)}
+              disabled={loading}
+              style={{
+                padding: '5px 12px',
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 20, color: 'var(--text-dim)',
+                fontSize: 12, transition: 'all .15s',
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.borderColor = 'var(--accent)'
+                e.currentTarget.style.color = 'var(--accent)'
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.borderColor = 'var(--border)'
+                e.currentTarget.style.color = 'var(--text-dim)'
+              }}
+            >
+              {ex}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading && (
+        <div style={{
+          padding: '16px 24px', background: 'var(--surface)',
+          border: '1px solid var(--border)', borderRadius: var_radius,
+          fontSize: 13, color: 'var(--text-dim)', textAlign: 'center',
+        }}>
+          <div style={{ marginBottom: 6, color: 'var(--accent)', fontWeight: 500 }}>
+            Creating two unique variations…
+          </div>
+          Calling DALL·E 3 twice concurrently. Usually takes 10–20 seconds.
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Spinner() {
+  return (
+    <span style={{
+      display: 'inline-block', width: 14, height: 14,
+      border: '2px solid rgba(255,255,255,.3)',
+      borderTopColor: '#fff', borderRadius: '50%',
+      animation: 'spin 0.7s linear infinite',
+    }} />
+  )
+}
+
+// Inline keyframes injected once
+if (typeof document !== 'undefined' && !document.getElementById('spinner-style')) {
+  const s = document.createElement('style')
+  s.id = 'spinner-style'
+  s.textContent = '@keyframes spin { to { transform: rotate(360deg); } }'
+  document.head.appendChild(s)
+}
+
+const var_radius = 'var(--radius)'
