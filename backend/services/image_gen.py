@@ -57,7 +57,8 @@ async def generate_images(prompt: str, session_dir: Path, session_id: str) -> li
         path = session_dir / f"image_{idx}.png"
         path.write_bytes(base64.b64decode(image_data))
         logger.info("Visual image %d saved → %s", idx, path)
-        return {"index": idx, "url": f"/api/files/{session_id}/image_{idx}.png"}
+        # Return as inline data URL so the browser doesn't need a separate request
+        return {"index": idx, "url": f"data:image/png;base64,{image_data}"}
 
     results = await asyncio.gather(*[_gen(p, i) for i, p in enumerate(variants)])
     return list(results)
