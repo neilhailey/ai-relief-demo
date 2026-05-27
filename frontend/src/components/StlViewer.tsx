@@ -134,18 +134,21 @@ export function StlViewer({ url, onReady }: Props) {
     }
 
     // Camera preset helper (uses latest size via sizeRef)
+    // Use non-null aliases — we already guard above with `if (!camera || !controls) return`
+    const cam  = camera
+    const ctrl = controls
     function goToPreset(preset: CameraPreset) {
       const sz = sizeRef.current
       const d  = Math.max(sz.x, sz.y, sz.z) * 1.4
       switch (preset) {
-        case 'iso':   camera.position.set( d * 0.6,  d * 0.9,  d * 0.7); break
-        case 'top':   camera.position.set( 0,         d * 1.6,  0.001);   break
-        case 'front': camera.position.set( 0,         d * 0.2, -d * 1.3); break
-        case 'right': camera.position.set( d * 1.3,   d * 0.2,  0);       break
+        case 'iso':   cam.position.set( d * 0.6,  d * 0.9,  d * 0.7); break
+        case 'top':   cam.position.set( 0,         d * 1.6,  0.001);   break
+        case 'front': cam.position.set( 0,         d * 0.2, -d * 1.3); break
+        case 'right': cam.position.set( d * 1.3,   d * 0.2,  0);       break
       }
-      camera.lookAt(0, 0, 0)
-      controls.target.set(0, 0, 0)
-      controls.update()
+      cam.lookAt(0, 0, 0)
+      ctrl.target.set(0, 0, 0)
+      ctrl.update()
     }
 
     const loader = new STLLoader()
