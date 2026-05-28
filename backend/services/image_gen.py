@@ -9,7 +9,9 @@ logger = logging.getLogger(__name__)
 # ── Visual render prompt (shown to user for selection) ──────────────────────
 _VISUAL_SUFFIX = (
     ", dramatic studio lighting, grayscale, white clay bas-relief sculpture "
-    "on a plain dark background, highly detailed, professional photography"
+    "on a plain dark background, highly detailed, professional photography, "
+    "no UI overlays, no selection boxes, no bounding boxes, no viewfinders, "
+    "no annotations, no text, no labels, no rectangles, no frames overlaid on the subject"
 )
 
 # ── Heightmap prompt (used for STL generation) ──────────────────────────────
@@ -24,8 +26,54 @@ _HEIGHTMAP_TEMPLATE = (
     "highest raised features are brightest white, shallower areas are lighter grey. "
     "(3) Smooth continuous gradients — no shadows, no cast shadows, no specular highlights. "
     "(4) The boundary between subject and background is sharp — black background, white/grey subject. "
+    "(5) Absolutely NO UI overlays, selection boxes, bounding rectangles, viewfinders, annotations, "
+    "text, labels, or geometric frames — these would be baked into the 3D surface. "
     "Output looks like a topographic heat-map: brightness encodes height above a flat black plane."
 )
+
+
+async def enhance_prompt(original: str) -> str:
+    """
+    Expand a short subject description into a rich, sculpture-focused prompt
+    optimised for AI image generation of bas-relief carving designs.
+
+    Uses gpt-4o-mini — fast and cheap. Falls back to the original on any error.
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return original
+
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(api_key=api_key)
+
+    system = (
+        "You are a prompt engineer for AI image generation specialising in CNC bas-relief wood carving artwork.\n\n"
+        "Transform the user's brief subject description into a rich, detailed image generation prompt.\n\n"
+        "Rules:\n"
+        "• Add specific sculptural detail: anatomy, texture, pose, composition, and depth cues\n"
+        "• Emphasise crisp silhouette edges, bold surface relief, and features that read clearly when carved\n"
+        "• Prefer iconic, recognisable poses that give strong depth variation across the surface\n"
+        "• Keep the result to 1–2 sentences, under 60 words\n"
+        "• Do NOT add lighting, photography, or style words — those are appended automatically\n"
+        "• Return ONLY the enhanced prompt text — no quotes, no explanation"
+    )
+
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": original},
+            ],
+            max_tokens=150,
+            temperature=0.7,
+        )
+        enhanced = response.choices[0].message.content.strip()
+        logger.info("Prompt enhanced: %r → %r", original[:40], enhanced[:60])
+        return enhanced
+    except Exception as e:
+        logger.warning("Prompt enhancement failed, using original: %s", e)
+        return original
 
 
 async def generate_images(prompt: str, session_dir: Path, session_id: str) -> list[dict]:
@@ -57,14 +105,24 @@ async def generate_images(prompt: str, session_dir: Path, session_id: str) -> li
         path = session_dir / f"image_{idx}.png"
         path.write_bytes(base64.b64decode(image_data))
         logger.info("Visual image %d saved → %s", idx, path)
-        return {"index": idx, "url": f"/api/files/{session_id}/image_{idx}.png"}
+        # Return as inline data URL so the browser doesn't need a separate request
+        return {"index": idx, "url": f"data:image/png;base64,{image_data}"}
 
     results = await asyncio.gather(*[_gen(p, i) for i, p in enumerate(variants)])
     return list(results)
 
 
-async def generate_heightmap(prompt: str, session_dir: Path, session_id: str) -> Path:
-    """Generate a grayscale heightmap for STL conversion (white=raised, black=background)."""
+async def generate_heightmap(
+    prompt: str,
+    session_dir: Path,
+    session_id: str,
+    source_image: Path,
+) -> Path:
+    """Generate a grayscale heightmap derived from the user-selected image.
+
+    Uses images.edit() so the heightmap faithfully follows the subject in the
+    chosen image rather than reimagining the scene from the text prompt alone.
+    """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ValueError("OPENAI_API_KEY is not set")
@@ -73,14 +131,16 @@ async def generate_heightmap(prompt: str, session_dir: Path, session_id: str) ->
     client = AsyncOpenAI(api_key=api_key)
 
     heightmap_prompt = _HEIGHTMAP_TEMPLATE.format(subject=prompt)
-    logger.info("Generating heightmap for: %s …", prompt[:60])
+    logger.info("Generating heightmap from selected image for: %s …", prompt[:60])
 
-    response = await client.images.generate(
-        model="gpt-image-1",
-        prompt=heightmap_prompt,
-        n=1,
-        size="1024x1024",
-    )
+    with open(source_image, "rb") as img_file:
+        response = await client.images.edit(
+            model="gpt-image-1",
+            image=img_file,
+            prompt=heightmap_prompt,
+            n=1,
+            size="1024x1024",
+        )
     img = response.data[0]
     image_data = img.b64_json or ""
     if not image_data:
