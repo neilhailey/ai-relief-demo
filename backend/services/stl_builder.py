@@ -12,6 +12,7 @@ Performance:
 """
 
 import asyncio
+import math
 import struct
 import logging
 from collections import deque
@@ -34,12 +35,13 @@ async def depth_to_stl(
     scale_z: float = 1.0,
     detail_enhance: float = 0.25,
     replace_below: float = 0.05,
+    draft_angle: float = 0.0,
 ) -> None:
     await asyncio.get_event_loop().run_in_executor(
         None, _build,
         depth_path, output_path,
         width_mm, height_mm, relief_depth_mm, base_thickness_mm,
-        resolution, scale_z, detail_enhance, replace_below,
+        resolution, scale_z, detail_enhance, replace_below, draft_angle,
     )
 
 
@@ -129,6 +131,54 @@ def _verts(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
     return np.stack([x, y, z], axis=1).astype(np.float32)
 
 
+# ── Draft angle (V-bit compatibility) ─────────────────────────────────────────
+
+def _apply_draft_angle(
+    arr: np.ndarray,
+    draft_angle_deg: float,
+    pixel_size_mm: float,
+    effective_depth_mm: float,
+) -> np.ndarray:
+    """
+    Expand raised features outward with sloped walls at `draft_angle_deg` from
+    vertical, using grey-scale morphological dilation with a cone kernel.
+
+    Physical meaning: a V-bit with half-angle = draft_angle_deg can follow the
+    wall surface cleanly because no wall is steeper than the bit's cutting edge.
+
+    Maths: for each pixel (y, x), compute
+        output[y, x] = max over all (dy, dx) of  arr[y+dy, x+dx] − dist·slope
+    where slope = pixel_size_mm / (tan(θ) · effective_depth_mm).
+    """
+    if draft_angle_deg <= 0:
+        return arr
+
+    try:
+        from scipy.ndimage import grey_dilation
+    except ImportError:
+        logger.warning("scipy not installed — draft angle disabled")
+        return arr
+
+    tan_a = math.tan(math.radians(draft_angle_deg))
+    # Normalised-height units that drop per pixel of distance
+    slope = pixel_size_mm / (tan_a * effective_depth_mm)
+    # Max radius: beyond this the cone contribution is ≤ 0
+    max_r = min(int(1.0 / slope) + 2, 80)
+
+    r = max_r
+    yy, xx = np.mgrid[-r:r+1, -r:r+1]
+    dists = np.sqrt(yy**2 + xx**2)
+
+    # -inf outside the circle so those cells are never selected by max
+    structure = np.full_like(dists, -np.inf, dtype=np.float64)
+    inside = dists <= r
+    structure[inside] = -dists[inside] * slope
+
+    dilated = grey_dilation(arr.astype(np.float64), structure=structure)
+    logger.info("Draft angle %.1f°: max_r=%d px, slope=%.4f/px", draft_angle_deg, max_r, slope)
+    return np.clip(dilated, 0.0, 1.0)
+
+
 # ── STL builder ───────────────────────────────────────────────────────────────
 
 def _build(
@@ -142,9 +192,10 @@ def _build(
     scale_z: float,
     detail_enhance: float,
     replace_below: float,
+    draft_angle: float,
 ) -> None:
-    logger.info("Building STL (res=%d, scaleZ=%.2f, enhance=%.2f, cutBelow=%.2f) …",
-                resolution, scale_z, detail_enhance, replace_below)
+    logger.info("Building STL (res=%d, scaleZ=%.2f, enhance=%.2f, cutBelow=%.2f, draft=%.1f°) …",
+                resolution, scale_z, detail_enhance, replace_below, draft_angle)
 
     # ── Load & resize ────────────────────────────────────────────────────────
     img = Image.open(depth_path).convert("L")
@@ -173,6 +224,14 @@ def _build(
 
     # ── Height grid ──────────────────────────────────────────────────────────
     effective_depth = relief_depth_mm * max(scale_z, 0.01)
+
+    # ── Draft angle for V-bit compatibility ──────────────────────────────────
+    # Expand each raised feature outward with walls sloped at draft_angle° from
+    # vertical. A V-bit with half-angle ≥ draft_angle can follow the wall in a
+    # single pass without undercutting.
+    if draft_angle > 0:
+        pixel_size_mm = width_mm / w
+        arr = _apply_draft_angle(arr, draft_angle, pixel_size_mm, effective_depth)
     zz = np.where(arr > 0, base_thickness_mm + arr * effective_depth, 0.0)
 
     xs = np.linspace(0.0, width_mm,  w, dtype=np.float32)
