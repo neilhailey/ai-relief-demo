@@ -1,6 +1,6 @@
 import { useState, KeyboardEvent } from 'react'
 
-const EXAMPLES = [
+const ALL_EXAMPLES = [
   'Celtic knot medallion',
   'Howling wolf silhouette',
   'Sunflower in bloom',
@@ -9,7 +9,32 @@ const EXAMPLES = [
   'Eagle in flight',
   'Mandala pattern',
   'Rose with thorns',
+  'Compass rose',
+  'Leaping stag',
+  'Oak tree with roots',
+  'Nautical anchor',
+  'Hummingbird',
+  'Lotus flower',
+  'Running horse',
+  'Pine forest at sunset',
+  'Tribal bear',
+  'Cresting wave',
+  'Barn owl',
+  'Grapevine wreath',
+  'Leaping salmon',
+  'Deer skull with antlers',
+  'Bald eagle head',
+  'Geometric deer',
+  'Dragon silhouette',
+  'Vintage ship wheel',
+  'Honeybee on comb',
+  'Bull skull',
 ]
+
+function pickRandom(n: number): string[] {
+  const shuffled = [...ALL_EXAMPLES].sort(() => Math.random() - 0.5)
+  return shuffled.slice(0, n)
+}
 
 interface Props {
   onGenerate: (prompt: string) => void
@@ -17,7 +42,9 @@ interface Props {
 }
 
 export function PromptStep({ onGenerate, loading }: Props) {
-  const [prompt, setPrompt] = useState('')
+  const [prompt,   setPrompt]   = useState('')
+  // Lazy initializer — runs once on mount, gives a fresh random set each page load
+  const [examples, setExamples] = useState<string[]>(() => pickRandom(7))
 
   function submit() {
     const p = prompt.trim()
@@ -92,7 +119,7 @@ export function PromptStep({ onGenerate, loading }: Props) {
       <div style={{ textAlign: 'center', maxWidth: 580 }}>
         <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>Try an example:</p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
-          {EXAMPLES.map(ex => (
+          {examples.map(ex => (
             <button
               key={ex}
               onClick={() => !loading && setPrompt(ex)}
