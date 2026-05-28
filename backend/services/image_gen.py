@@ -28,6 +28,50 @@ _HEIGHTMAP_TEMPLATE = (
 )
 
 
+async def enhance_prompt(original: str) -> str:
+    """
+    Expand a short subject description into a rich, sculpture-focused prompt
+    optimised for AI image generation of bas-relief carving designs.
+
+    Uses gpt-4o-mini — fast and cheap. Falls back to the original on any error.
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return original
+
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(api_key=api_key)
+
+    system = (
+        "You are a prompt engineer for AI image generation specialising in CNC bas-relief wood carving artwork.\n\n"
+        "Transform the user's brief subject description into a rich, detailed image generation prompt.\n\n"
+        "Rules:\n"
+        "• Add specific sculptural detail: anatomy, texture, pose, composition, and depth cues\n"
+        "• Emphasise crisp silhouette edges, bold surface relief, and features that read clearly when carved\n"
+        "• Prefer iconic, recognisable poses that give strong depth variation across the surface\n"
+        "• Keep the result to 1–2 sentences, under 60 words\n"
+        "• Do NOT add lighting, photography, or style words — those are appended automatically\n"
+        "• Return ONLY the enhanced prompt text — no quotes, no explanation"
+    )
+
+    try:
+        response = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": original},
+            ],
+            max_tokens=150,
+            temperature=0.7,
+        )
+        enhanced = response.choices[0].message.content.strip()
+        logger.info("Prompt enhanced: %r → %r", original[:40], enhanced[:60])
+        return enhanced
+    except Exception as e:
+        logger.warning("Prompt enhancement failed, using original: %s", e)
+        return original
+
+
 async def generate_images(prompt: str, session_dir: Path, session_id: str) -> list[dict]:
     """Generate 2 visual renders for user selection."""
     api_key = os.getenv("OPENAI_API_KEY")
