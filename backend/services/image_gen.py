@@ -64,8 +64,17 @@ async def generate_images(prompt: str, session_dir: Path, session_id: str) -> li
     return list(results)
 
 
-async def generate_heightmap(prompt: str, session_dir: Path, session_id: str) -> Path:
-    """Generate a grayscale heightmap for STL conversion (white=raised, black=background)."""
+async def generate_heightmap(
+    prompt: str,
+    session_dir: Path,
+    session_id: str,
+    source_image: Path,
+) -> Path:
+    """Generate a grayscale heightmap derived from the user-selected image.
+
+    Uses images.edit() so the heightmap faithfully follows the subject in the
+    chosen image rather than reimagining the scene from the text prompt alone.
+    """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ValueError("OPENAI_API_KEY is not set")
@@ -74,14 +83,16 @@ async def generate_heightmap(prompt: str, session_dir: Path, session_id: str) ->
     client = AsyncOpenAI(api_key=api_key)
 
     heightmap_prompt = _HEIGHTMAP_TEMPLATE.format(subject=prompt)
-    logger.info("Generating heightmap for: %s …", prompt[:60])
+    logger.info("Generating heightmap from selected image for: %s …", prompt[:60])
 
-    response = await client.images.generate(
-        model="gpt-image-1",
-        prompt=heightmap_prompt,
-        n=1,
-        size="1024x1024",
-    )
+    with open(source_image, "rb") as img_file:
+        response = await client.images.edit(
+            model="gpt-image-1",
+            image=img_file,
+            prompt=heightmap_prompt,
+            n=1,
+            size="1024x1024",
+        )
     img = response.data[0]
     image_data = img.b64_json or ""
     if not image_data:
