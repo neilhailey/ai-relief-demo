@@ -98,9 +98,13 @@ async def api_relief(req: ReliefRequest):
         raise HTTPException(status_code=404, detail="Image not found")
 
     try:
-        # Generate a proper grayscale heightmap for the STL
-        # (separate from the visual render the user selected)
-        heightmap_path = await generate_heightmap(req.prompt, session_dir, req.session_id)
+        # Generate a grayscale heightmap derived from the user-selected image
+        # so the STL faithfully represents what was chosen, not a re-imagination
+        # of the text prompt.
+        heightmap_path = await generate_heightmap(
+            req.prompt, session_dir, req.session_id,
+            source_image=image_path,
+        )
 
         stl_path = session_dir / "relief.stl"
         await depth_to_stl(
