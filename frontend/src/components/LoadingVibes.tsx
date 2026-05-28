@@ -4,7 +4,7 @@
  *   1. Give people something interesting to read — facts, context, progress.
  *   2. Make every second feel intentional, not like waiting for a server.
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, CSSProperties } from 'react'
 
 // ── Shared data ───────────────────────────────────────────────────────────────
 
@@ -82,7 +82,7 @@ function useStages(afters: number[]): number {
 
 // ── Shared atoms ──────────────────────────────────────────────────────────────
 
-function ProgressBar({ pct, style }: { pct: number; style?: React.CSSProperties }) {
+function ProgressBar({ pct, style }: { pct: number; style?: CSSProperties }) {
   return (
     <div style={{
       width: '100%', height: 3,
