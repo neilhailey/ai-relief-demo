@@ -129,7 +129,7 @@ interface Props {
 export function PromptStep({ onGenerate, loading }: Props) {
   const [prompt,   setPrompt]   = useState('')
   // Lazy initializer — runs once on mount, gives a fresh random set each page load
-  const [examples, setExamples] = useState<string[]>(() => pickRandom(7))
+  const [examples] = useState<string[]>(() => pickRandom(7))
 
   function submit() {
     const p = prompt.trim()
