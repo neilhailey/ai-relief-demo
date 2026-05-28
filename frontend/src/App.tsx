@@ -47,8 +47,7 @@ export default function App() {
       )
       setSession({
         sessionId: data.session_id, prompt,
-        // Prefix relative /api/files/... URLs with the backend base URL
-        images: data.images.map(img => ({ ...img, url: `${API}${img.url}` })),
+        images: data.images,   // URLs are already absolute data: URLs from backend
         selectedIndex: null, heightmapUrl: null, stlUrl: null,
       })
       setStep(2)
@@ -70,17 +69,19 @@ export default function App() {
     try {
       const data = await apiFetch<{ heightmap_url: string; stl_url: string }>(
         '/api/relief', {
-          session_id:   session.sessionId,
-          image_index:  session.selectedIndex,
-          prompt:       session.prompt,
-          replace_below: removeBg ? 0.08 : 0.0,
+          session_id:     session.sessionId,
+          image_index:    session.selectedIndex,
+          prompt:         session.prompt,
+          replace_below:  removeBg ? 0.08 : 0.0,
           detail_enhance: 0.25,
-          scale_z: 1.0,
+          scale_z:        1.0,
+          draft_angle:    10.0,   // default 10° — user can adjust in the Relief step
         },
       )
       setSession(s => s ? {
         ...s,
-        heightmapUrl: `${API}${data.heightmap_url}`,
+        // heightmap_url is a data: URL; stl_url is a relative /api/files/... path
+        heightmapUrl: data.heightmap_url,
         stlUrl:       `${API}${data.stl_url}`,
       } : s)
       setStep(4)
@@ -97,6 +98,7 @@ export default function App() {
     )
     return `${API}${data.stl_url}`
   }
+  // params already includes draft_angle (degrees) forwarded from ReliefStep sliders
 
   function handleRegenerate() {
     if (session) handleGenerate(session.prompt)
