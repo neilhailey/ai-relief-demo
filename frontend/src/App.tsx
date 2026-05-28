@@ -10,7 +10,8 @@ type Step = 1 | 2 | 3 | 4
 
 interface SessionState {
   sessionId: string
-  prompt: string
+  prompt: string           // original user input — shown in the UI
+  enhancedPrompt: string   // AI-expanded version — used for all API calls
   images: ImageOption[]
   selectedIndex: number | null
   heightmapUrl: string | null
@@ -42,13 +43,17 @@ export default function App() {
   async function handleGenerate(prompt: string) {
     setLoading(true); setError(null)
     try {
-      const data = await apiFetch<{ session_id: string; images: ImageOption[] }>(
-        '/api/generate', { prompt },
-      )
+      const data = await apiFetch<{
+        session_id: string
+        images: ImageOption[]
+        original_prompt: string
+        enhanced_prompt: string
+      }>('/api/generate', { prompt })
       setSession({
-        sessionId: data.session_id, prompt,
-        // Prefix relative /api/files/... URLs with the backend base URL
-        images: data.images.map(img => ({ ...img, url: `${API}${img.url}` })),
+        sessionId:      data.session_id,
+        prompt:         data.original_prompt,   // shown in UI
+        enhancedPrompt: data.enhanced_prompt,   // used for API calls
+        images:         data.images,
         selectedIndex: null, heightmapUrl: null, stlUrl: null,
       })
       setStep(2)
@@ -70,17 +75,19 @@ export default function App() {
     try {
       const data = await apiFetch<{ heightmap_url: string; stl_url: string }>(
         '/api/relief', {
-          session_id:   session.sessionId,
-          image_index:  session.selectedIndex,
-          prompt:       session.prompt,
-          replace_below: removeBg ? 0.08 : 0.0,
+          session_id:     session.sessionId,
+          image_index:    session.selectedIndex,
+          prompt:         session.enhancedPrompt,  // richer prompt → better heightmap
+          replace_below:  removeBg ? 0.08 : 0.0,
           detail_enhance: 0.25,
-          scale_z: 1.0,
+          scale_z:        1.0,
+          draft_angle:    10.0,
         },
       )
       setSession(s => s ? {
         ...s,
-        heightmapUrl: `${API}${data.heightmap_url}`,
+        // heightmap_url is a data: URL; stl_url is a relative /api/files/... path
+        heightmapUrl: data.heightmap_url,
         stlUrl:       `${API}${data.stl_url}`,
       } : s)
       setStep(4)
@@ -97,9 +104,10 @@ export default function App() {
     )
     return `${API}${data.stl_url}`
   }
+  // params already includes draft_angle (degrees) forwarded from ReliefStep sliders
 
   function handleRegenerate() {
-    if (session) handleGenerate(session.prompt)
+    if (session) handleGenerate(session.prompt)   // re-enhances from original
   }
 
   function handleStartOver() {
@@ -165,6 +173,7 @@ export default function App() {
           <SelectStep
             key={session.sessionId}
             prompt={session.prompt}
+            enhancedPrompt={session.enhancedPrompt}
             images={session.images}
             onSelect={handleSelectImage}
             onRegenerate={handleRegenerate}

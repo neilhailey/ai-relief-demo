@@ -7,11 +7,13 @@ export type CameraPreset = 'iso' | 'top' | 'front' | 'right'
 
 interface Props {
   url: string
-  /** Called after each geometry load; passes a goToPreset fn using the current mesh size. */
+  scaleZ?: number          // applied instantly as mesh.scale.z — no STL reload needed
   onReady?: (goToPreset: (preset: CameraPreset) => void) => void
+  onLoadStart?: () => void // called when a new URL begins loading
+  onLoadEnd?: () => void   // called when geometry is fully loaded
 }
 
-export function StlViewer({ url, onReady }: Props) {
+export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd }: Props) {
   const mountRef     = useRef<HTMLDivElement>(null)
   const rendererRef  = useRef<THREE.WebGLRenderer | null>(null)
   const sceneRef     = useRef<THREE.Scene | null>(null)
@@ -21,9 +23,23 @@ export function StlViewer({ url, onReady }: Props) {
   const planeRef     = useRef<THREE.Mesh | null>(null)
   const sizeRef      = useRef(new THREE.Vector3())
   const firstLoadRef = useRef(true)
-  // Keep onReady in a ref so the geometry effect never has it as a dependency
-  const onReadyRef   = useRef(onReady)
-  useEffect(() => { onReadyRef.current = onReady }, [onReady])
+
+  // Stable refs for callbacks and scaleZ so closures always read the latest value
+  const onReadyRef      = useRef(onReady)
+  const onLoadStartRef  = useRef(onLoadStart)
+  const onLoadEndRef    = useRef(onLoadEnd)
+  const scaleZRef       = useRef(scaleZ)
+  useEffect(() => { onReadyRef.current     = onReady     }, [onReady])
+  useEffect(() => { onLoadStartRef.current = onLoadStart }, [onLoadStart])
+  useEffect(() => { onLoadEndRef.current   = onLoadEnd   }, [onLoadEnd])
+  useEffect(() => { scaleZRef.current      = scaleZ      }, [scaleZ])
+
+  // ── Instant scale update: no geometry reload required ─────────────────────
+  useEffect(() => {
+    if (meshRef.current) {
+      meshRef.current.scale.z = scaleZ
+    }
+  }, [scaleZ])
 
   // ── Scene init: runs ONCE on mount ────────────────────────────────────────
   useEffect(() => {
@@ -33,7 +49,6 @@ export function StlViewer({ url, onReady }: Props) {
     const W = mount.clientWidth || 800
     const H = mount.clientHeight || 600
 
-    // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(window.devicePixelRatio)
     renderer.setSize(W, H)
@@ -42,34 +57,27 @@ export function StlViewer({ url, onReady }: Props) {
     mount.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
-    // Scene
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x0d1117)
     scene.fog = new THREE.Fog(0x0d1117, 300, 600)
     sceneRef.current = scene
 
-    // Camera
     const camera = new THREE.PerspectiveCamera(42, W / H, 0.1, 2000)
     cameraRef.current = camera
 
-    // Lights
     scene.add(new THREE.AmbientLight(0xffffff, 0.35))
-
     const key = new THREE.DirectionalLight(0xfff3e0, 1.5)
     key.position.set(60, 140, 60)
     key.castShadow = true
     key.shadow.mapSize.set(1024, 1024)
     scene.add(key)
-
     const fill = new THREE.DirectionalLight(0x3b82f6, 0.3)
     fill.position.set(-100, 60, 40)
     scene.add(fill)
-
     const rim = new THREE.DirectionalLight(0xffffff, 0.15)
     rim.position.set(0, -80, -60)
     scene.add(rim)
 
-    // Controls
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.dampingFactor = 0.06
@@ -78,7 +86,6 @@ export function StlViewer({ url, onReady }: Props) {
     controls.maxDistance   = 400
     controlRef.current = controls
 
-    // Animation loop
     let raf: number
     function animate() {
       raf = requestAnimationFrame(animate)
@@ -87,7 +94,6 @@ export function StlViewer({ url, onReady }: Props) {
     }
     animate()
 
-    // Resize handler
     function onResize() {
       if (!mount) return
       const w = mount.clientWidth
@@ -112,29 +118,20 @@ export function StlViewer({ url, onReady }: Props) {
       controlRef.current   = null
       firstLoadRef.current = true
     }
-  }, [])   // ← empty deps: runs once
+  }, [])
 
-  // ── Geometry reload: runs when URL changes, KEEPS existing camera ─────────
+  // ── Geometry reload: runs when URL changes, KEEPS existing camera & mesh ──
   useEffect(() => {
     const scene    = sceneRef.current
     const camera   = cameraRef.current
     const controls = controlRef.current
     if (!scene || !camera || !controls) return
 
-    // Remove previous mesh + shadow plane
-    if (meshRef.current) {
-      scene.remove(meshRef.current)
-      meshRef.current.geometry.dispose()
-      ;(meshRef.current.material as THREE.Material).dispose()
-      meshRef.current = null
-    }
-    if (planeRef.current) {
-      scene.remove(planeRef.current)
-      planeRef.current = null
-    }
+    onLoadStartRef.current?.()
 
-    // Camera preset helper (uses latest size via sizeRef)
-    // Use non-null aliases — we already guard above with `if (!camera || !controls) return`
+    // Keep the OLD mesh visible while loading so the view never goes blank.
+    // It will be swapped out atomically once the new geometry is ready.
+
     const cam  = camera
     const ctrl = controls
     function goToPreset(preset: CameraPreset) {
@@ -143,7 +140,7 @@ export function StlViewer({ url, onReady }: Props) {
       switch (preset) {
         case 'iso':   cam.position.set( d * 0.6,  d * 0.9,  d * 0.7); break
         case 'top':   cam.position.set( 0,         d * 1.6,  0.001);   break
-        case 'front': cam.position.set( 0,         d * 0.2, -d * 1.3); break
+        case 'front': cam.position.set( 0,         d * 0.2,  d * 1.3); break
         case 'right': cam.position.set( d * 1.3,   d * 0.2,  0);       break
       }
       cam.lookAt(0, 0, 0)
@@ -176,30 +173,41 @@ export function StlViewer({ url, onReady }: Props) {
       mesh.castShadow    = true
       mesh.receiveShadow = true
       mesh.rotation.x    = -Math.PI / 2
+      mesh.scale.z       = scaleZRef.current   // apply current scale immediately
+
+      // ── Atomic swap: remove old, add new ──────────────────────────────────
+      if (meshRef.current) {
+        scene.remove(meshRef.current)
+        meshRef.current.geometry.dispose()
+        ;(meshRef.current.material as THREE.Material).dispose()
+      }
+      if (planeRef.current) {
+        scene.remove(planeRef.current)
+        planeRef.current = null
+      }
+
       scene.add(mesh)
       meshRef.current = mesh
 
-      // Shadow plane
       const plane = new THREE.Mesh(
         new THREE.PlaneGeometry(500, 500),
         new THREE.ShadowMaterial({ opacity: 0.25 }),
       )
-      plane.rotation.x   = -Math.PI / 2
-      plane.position.y   = -size.z / 2 - 1
+      plane.rotation.x    = -Math.PI / 2
+      plane.position.y    = -size.z / 2 - 1
       plane.receiveShadow = true
       scene.add(plane)
       planeRef.current = plane
 
-      // Only auto-position camera on the VERY FIRST load
       if (firstLoadRef.current) {
         firstLoadRef.current = false
         goToPreset('iso')
       }
 
-      // Always expose updated preset fn (size may have changed)
       onReadyRef.current?.(goToPreset)
+      onLoadEndRef.current?.()
     })
-  }, [url])   // ← only url: camera survives slider-driven URL changes
+  }, [url])
 
   return <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
 }

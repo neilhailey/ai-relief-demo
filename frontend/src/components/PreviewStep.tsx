@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { HeightmapGenLoading } from './LoadingVibes'
 
 interface Props {
   prompt: string
@@ -10,6 +11,15 @@ interface Props {
 
 export function PreviewStep({ prompt, imageUrl, onCreateModel, onBack, loading }: Props) {
   const [removeBg, setRemoveBg] = useState(false)
+
+  // While generating, replace the whole step with the loading experience
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 24px' }}>
+        <HeightmapGenLoading prompt={prompt} />
+      </div>
+    )
+  }
 
   return (
     <div style={{
@@ -31,7 +41,7 @@ export function PreviewStep({ prompt, imageUrl, onCreateModel, onBack, loading }
         overflow: 'hidden',
       }}>
         {/* Image preview */}
-        <div style={{ position: 'relative', background: '#000' }}>
+        <div style={{ background: '#000' }}>
           <img
             src={imageUrl}
             alt="Selected"
@@ -41,22 +51,6 @@ export function PreviewStep({ prompt, imageUrl, onCreateModel, onBack, loading }
               transition: 'filter .3s',
             }}
           />
-          {loading && (
-            <div style={{
-              position: 'absolute', inset: 0,
-              background: 'rgba(0,0,0,.7)',
-              display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', gap: 14,
-            }}>
-              <Spinner size={36} />
-              <div style={{ color: '#fff', fontSize: 14, fontWeight: 500 }}>
-                Generating heightmap + 3D model…
-              </div>
-              <div style={{ color: 'var(--text-dim)', fontSize: 12 }}>
-                This takes about 15–25 seconds
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Controls bar */}
@@ -66,16 +60,14 @@ export function PreviewStep({ prompt, imageUrl, onCreateModel, onBack, loading }
           borderTop: '1px solid var(--border)',
         }}>
           {/* Remove Background toggle */}
-          <label style={{
-            display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer',
-          }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer' }}>
             <div
-              onClick={() => !loading && setRemoveBg(v => !v)}
+              onClick={() => setRemoveBg(v => !v)}
               style={{
                 width: 44, height: 24, borderRadius: 12,
                 background: removeBg ? 'var(--accent)' : 'var(--border)',
                 position: 'relative', transition: 'background .2s',
-                cursor: loading ? 'default' : 'pointer', flexShrink: 0,
+                cursor: 'pointer', flexShrink: 0,
               }}
             >
               <div style={{
@@ -104,7 +96,6 @@ export function PreviewStep({ prompt, imageUrl, onCreateModel, onBack, loading }
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
         <button
           onClick={onBack}
-          disabled={loading}
           style={{
             padding: '10px 20px',
             background: 'transparent',
@@ -117,19 +108,17 @@ export function PreviewStep({ prompt, imageUrl, onCreateModel, onBack, loading }
         </button>
         <button
           onClick={() => onCreateModel(removeBg)}
-          disabled={loading}
           style={{
             padding: '12px 32px',
-            background: loading ? 'var(--border)' : 'var(--accent)',
+            background: 'var(--accent)',
             border: 'none',
             borderRadius: 'var(--radius)',
-            color: loading ? 'var(--muted)' : '#fff',
+            color: '#fff',
             fontSize: 14, fontWeight: 600,
             display: 'flex', alignItems: 'center', gap: 8,
-            transition: 'background .2s',
           }}
         >
-          {loading ? <><Spinner size={14} /> Generating…</> : '✦  Create Model'}
+          ✦  Create Model
         </button>
       </div>
 
@@ -140,13 +129,3 @@ export function PreviewStep({ prompt, imageUrl, onCreateModel, onBack, loading }
   )
 }
 
-function Spinner({ size = 14 }: { size?: number }) {
-  return (
-    <span style={{
-      display: 'inline-block', width: size, height: size,
-      border: `${size > 20 ? 3 : 2}px solid rgba(255,255,255,.25)`,
-      borderTopColor: '#fff', borderRadius: '50%',
-      animation: 'spin 0.7s linear infinite', flexShrink: 0,
-    }} />
-  )
-}

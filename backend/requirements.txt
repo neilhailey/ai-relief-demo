@@ -3,6 +3,7 @@ uvicorn[standard]==0.30.6
 openai>=1.54.0,<2.0.0
 pillow==10.4.0
 numpy==1.26.4
+scipy==1.13.1
 aiohttp==3.10.5
 python-multipart==0.0.12
 python-dotenv==1.0.1

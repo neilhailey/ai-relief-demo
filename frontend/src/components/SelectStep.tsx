@@ -7,15 +7,17 @@ export interface ImageOption {
 
 interface Props {
   prompt: string
+  enhancedPrompt?: string
   images: ImageOption[]
   onSelect: (index: number) => void
   onRegenerate: () => void
   loading: boolean
 }
 
-export function SelectStep({ prompt, images, onSelect, onRegenerate, loading }: Props) {
-  const [hovered,  setHovered]  = useState<number | null>(null)
-  const [selected, setSelected] = useState<number | null>(null)
+export function SelectStep({ prompt, enhancedPrompt, images, onSelect, onRegenerate, loading }: Props) {
+  const [hovered,      setHovered]      = useState<number | null>(null)
+  const [selected,     setSelected]     = useState<number | null>(null)
+  const [showEnhanced, setShowEnhanced] = useState(false)
 
   function confirm(idx: number) {
     setSelected(idx)
@@ -27,9 +29,38 @@ export function SelectStep({ prompt, images, onSelect, onRegenerate, loading }: 
 
       <div style={{ textAlign: 'center' }}>
         <h1 style={{ fontSize: 30, fontWeight: 700, marginBottom: 8 }}>Choose your favourite</h1>
-        <p style={{ fontSize: 13, color: 'var(--text-dim)' }}>
-          Prompt: <em style={{ color: 'var(--text)' }}>"{prompt}"</em>
+        <p style={{ fontSize: 13, color: 'var(--text-dim)', marginBottom: 6 }}>
+          Your prompt: <em style={{ color: 'var(--text)' }}>"{prompt}"</em>
         </p>
+        {enhancedPrompt && enhancedPrompt !== prompt && (
+          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+            <button
+              onClick={() => setShowEnhanced(v => !v)}
+              style={{
+                background: 'none', border: 'none', padding: 0,
+                color: 'var(--accent)', fontSize: 11, cursor: 'pointer',
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+              }}
+            >
+              <span style={{ fontSize: 10 }}>✦</span>
+              {showEnhanced ? 'Hide enhanced prompt' : 'Prompt was enhanced for better results'}
+            </button>
+            {showEnhanced && (
+              <div style={{
+                marginTop: 8, maxWidth: 560, margin: '8px auto 0',
+                padding: '10px 14px',
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                fontSize: 12, color: 'var(--text-dim)',
+                textAlign: 'left', lineHeight: 1.6,
+                fontStyle: 'italic',
+              }}>
+                {enhancedPrompt}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Loading banner while regenerating */}
