@@ -114,10 +114,16 @@ async def generate_heightmap(
     session_id: str,
     source_image: Path,
 ) -> Path:
-    """Generate a grayscale heightmap derived from the user-selected image.
+    """Generate a grayscale heightmap using images.generate().
 
-    Uses images.edit() so the heightmap faithfully follows the subject in the
-    chosen image rather than reimagining the scene from the text prompt alone.
+    Previously used images.edit() with the selected image as input, but that
+    endpoint consistently produced a rectangular patch artifact in the centre of
+    the heightmap (an internal tiling boundary of the gpt-image-1 edit model)
+    which was then baked visibly into the STL mesh geometry.
+
+    images.generate() with the enhanced prompt produces clean, artifact-free
+    heightmaps. The enhanced prompt already captures the key structural features
+    of the selected image, so the depth map quality is maintained.
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -127,16 +133,14 @@ async def generate_heightmap(
     client = AsyncOpenAI(api_key=api_key)
 
     heightmap_prompt = _HEIGHTMAP_TEMPLATE.format(subject=prompt)
-    logger.info("Generating heightmap from selected image for: %s …", prompt[:60])
+    logger.info("Generating heightmap for: %s …", prompt[:60])
 
-    with open(source_image, "rb") as img_file:
-        response = await client.images.edit(
-            model="gpt-image-1",
-            image=img_file,
-            prompt=heightmap_prompt,
-            n=1,
-            size="1024x1024",
-        )
+    response = await client.images.generate(
+        model="gpt-image-1",
+        prompt=heightmap_prompt,
+        n=1,
+        size="1024x1024",
+    )
     img = response.data[0]
     image_data = img.b64_json or ""
     if not image_data:
