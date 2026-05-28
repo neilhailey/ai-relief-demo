@@ -1,4 +1,5 @@
 import { useState, KeyboardEvent } from 'react'
+import { ImageGenLoading } from './LoadingVibes'
 
 const ALL_EXAMPLES = [
   // Wildlife
@@ -143,6 +144,15 @@ export function PromptStep({ onGenerate, loading }: Props) {
     }
   }
 
+  // While generating, replace the whole form with the animated loading experience
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '40px 24px' }}>
+        <ImageGenLoading prompt={prompt} />
+      </div>
+    )
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 32, padding: '40px 24px' }}>
 
@@ -230,18 +240,6 @@ export function PromptStep({ onGenerate, loading }: Props) {
         </div>
       </div>
 
-      {loading && (
-        <div style={{
-          padding: '16px 24px', background: 'var(--surface)',
-          border: '1px solid var(--border)', borderRadius: var_radius,
-          fontSize: 13, color: 'var(--text-dim)', textAlign: 'center',
-        }}>
-          <div style={{ marginBottom: 6, color: 'var(--accent)', fontWeight: 500 }}>
-            Creating two unique variations…
-          </div>
-          Calling DALL·E 3 twice concurrently. Usually takes 10–20 seconds.
-        </div>
-      )}
     </div>
   )
 }
