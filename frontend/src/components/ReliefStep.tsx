@@ -17,12 +17,14 @@ export interface SliderParams {
   scale_z: number
   detail_enhance: number
   replace_below: number
+  draft_angle: number   // degrees 0–45; match to V-bit half-angle
 }
 
 export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageUrl, onStartOver, onUpdateStl }: Props) {
   const [scaleZ,        setScaleZ]        = useState(100)   // 10–300 displayed as %
   const [detailEnhance, setDetailEnhance] = useState(25)    // 0–100 displayed as %
   const [replaceBelow,  setReplaceBelow]  = useState(5)     // 0–50 displayed as %
+  const [draftAngle,    setDraftAngle]    = useState(10)    // 0–45 displayed as °
   const [currentStlUrl, setCurrentStlUrl] = useState(initialStlUrl)
   const [updating,      setUpdating]      = useState(false)
   const [modelLoading,  setModelLoading]  = useState(true)  // overlay until first STL loads
@@ -30,7 +32,7 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
   const debounceRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const goToPresetRef = useRef<((p: CameraPreset) => void) | null>(null)
 
-  const triggerUpdate = useCallback((sz: number, de: number, rb: number) => {
+  const triggerUpdate = useCallback((sz: number, de: number, rb: number, da: number) => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
       setUpdating(true)
@@ -39,6 +41,7 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
           scale_z:        sz / 100,
           detail_enhance: de / 100,
           replace_below:  rb / 100,
+          draft_angle:    da,           // sent as degrees
         })
         setCurrentStlUrl(newUrl + `?t=${Date.now()}`)
       } finally {
@@ -50,11 +53,12 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
   // Scale Z is applied instantly as a Three.js transform — no STL rebuild needed
   // for the live preview. We still queue a background rebuild so the downloaded
   // STL has the correct scale baked into the geometry.
-  function handleScaleZ(v: number)  { setScaleZ(v);        triggerUpdate(v, detailEnhance, replaceBelow) }
+  function handleScaleZ(v: number)  { setScaleZ(v);        triggerUpdate(v, detailEnhance, replaceBelow, draftAngle) }
 
-  // Detail / Replace Below change actual mesh geometry — requires a rebuild.
-  function handleDetail(v: number)  { setDetailEnhance(v); triggerUpdate(scaleZ, v, replaceBelow)        }
-  function handleReplace(v: number) { setReplaceBelow(v);  triggerUpdate(scaleZ, detailEnhance, v)       }
+  // These change actual mesh geometry — require a rebuild.
+  function handleDetail(v: number)  { setDetailEnhance(v); triggerUpdate(scaleZ, v, replaceBelow, draftAngle)        }
+  function handleReplace(v: number) { setReplaceBelow(v);  triggerUpdate(scaleZ, detailEnhance, v, draftAngle)       }
+  function handleDraft(v: number)   { setDraftAngle(v);    triggerUpdate(scaleZ, detailEnhance, replaceBelow, v)     }
 
   function handleViewButton(preset: CameraPreset) {
     setActiveView(preset)
@@ -100,6 +104,15 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
           display={v => `${v}%`}
           onChange={handleReplace}
           disabled={updating}
+        />
+        <Slider
+          label="V-Bit Draft Angle"
+          value={draftAngle}
+          min={0} max={45} step={1}
+          display={v => v === 0 ? 'off' : `${v}°`}
+          onChange={handleDraft}
+          disabled={updating}
+          hint="Match to your bit's half-angle (60° bit → 30°)"
         />
 
         <div style={{ height: 1, background: 'var(--border)', margin: '16px 0' }} />
@@ -286,18 +299,24 @@ interface SliderProps {
   display: (v: number) => string
   onChange: (v: number) => void
   disabled?: boolean
+  hint?: string
 }
 
-function Slider({ label, value, min, max, step, display, onChange, disabled }: SliderProps) {
+function Slider({ label, value, min, max, step, display, onChange, disabled, hint }: SliderProps) {
   return (
     <div style={{ marginBottom: 18 }}>
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        marginBottom: 6,
+        marginBottom: hint ? 2 : 6,
       }}>
         <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>{label}</span>
         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{display(value)}</span>
       </div>
+      {hint && (
+        <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4, fontStyle: 'italic' }}>
+          {hint}
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 10, color: 'var(--muted)' }}>—</span>
         <input
