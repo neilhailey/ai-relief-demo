@@ -1,5 +1,6 @@
 import { Suspense, lazy, useState, useCallback, useRef } from 'react'
 import type { CameraPreset } from './StlViewer'
+import { ModelBuildingOverlay } from './LoadingVibes'
 
 const StlViewer = lazy(() => import('./StlViewer').then(m => ({ default: m.StlViewer })))
 
@@ -239,34 +240,9 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
         </Suspense>
 
         {/* Loading overlay — rendered as a CSS sibling OUTSIDE the WebGL canvas
-            so it isn't obscured by the browser's compositor layer */}
-        {modelLoading && (
-          <div style={{
-            position: 'absolute', inset: 0,
-            display: 'flex', flexDirection: 'column',
-            alignItems: 'center', justifyContent: 'center',
-            gap: 16,
-            background: '#0a0d12',
-            pointerEvents: 'none',
-            zIndex: 20,
-          }}>
-            <div style={{
-              width: 52, height: 52,
-              borderRadius: '50%',
-              border: '3px solid rgba(249,115,22,0.15)',
-              borderTopColor: '#f97316',
-              animation: 'spin 0.9s linear infinite',
-            }} />
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 14, color: 'var(--text-dim)', fontWeight: 500, marginBottom: 4 }}>
-                Building 3D relief…
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                usually 15–30 s
-              </div>
-            </div>
-          </div>
-        )}
+            so it isn't obscured by the browser's compositor layer.
+            Key on modelLoading so timers/typewriter reset on each new build. */}
+        {modelLoading && <ModelBuildingOverlay key={String(modelLoading)} />}
 
         {/* Start over */}
         <button
