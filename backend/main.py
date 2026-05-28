@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from services.image_gen import generate_images, generate_heightmap
+from services.image_gen import enhance_prompt, generate_images, generate_heightmap
 from services.stl_builder import depth_to_stl
 
 load_dotenv()
@@ -73,12 +73,22 @@ async def api_generate(req: GenerateRequest):
     session_dir = OUTPUT_DIR / session_id
     session_dir.mkdir(exist_ok=True)
 
-    # Save prompt for later (heightmap generation)
-    (session_dir / "prompt.txt").write_text(req.prompt.strip())
+    original = req.prompt.strip()
+    (session_dir / "prompt.txt").write_text(original)
 
     try:
-        images = await generate_images(req.prompt.strip(), session_dir, session_id)
-        return {"session_id": session_id, "images": images}
+        # Expand the short user prompt into a rich, sculpture-focused description
+        # before passing it to the image generator.
+        enhanced = await enhance_prompt(original)
+        (session_dir / "enhanced_prompt.txt").write_text(enhanced)
+
+        images = await generate_images(enhanced, session_dir, session_id)
+        return {
+            "session_id":      session_id,
+            "images":          images,
+            "original_prompt": original,
+            "enhanced_prompt": enhanced,
+        }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
