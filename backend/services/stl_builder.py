@@ -2,12 +2,13 @@
 Converts a grayscale heightmap (white=raised, black=background) into a
 watertight binary STL bas-relief mesh.
 
-Performance notes:
-  - Coordinate arrays are pre-converted to Python lists to avoid per-iteration
-    numpy overhead in the inner loop.
-  - Normal computation uses pure-Python arithmetic (faster than numpy for tiny 3-vectors).
-  - Background removal uses a border-seeded BFS flood fill (handles grey backgrounds).
+Performance:
+  - Mesh building is fully vectorised with NumPy — no Python inner loop.
+  - Binary STL is written with a numpy structured array (single tofile call).
+  - Background removal uses a border-seeded BFS flood fill.
   - Morphological closing bridges thin gaps between disconnected components.
+  - Default resolution 1024 px gives ~0.1 mm/pixel for 100 mm stock — good
+    for CNC G-code generation.
 """
 
 import asyncio
@@ -29,7 +30,7 @@ async def depth_to_stl(
     height_mm: float = 100.0,
     relief_depth_mm: float = 8.0,
     base_thickness_mm: float = 2.0,
-    resolution: int = 512,
+    resolution: int = 1024,
     scale_z: float = 1.0,
     detail_enhance: float = 0.25,
     replace_below: float = 0.05,
@@ -45,10 +46,7 @@ async def depth_to_stl(
 # ── Background removal ────────────────────────────────────────────────────────
 
 def _flood_fill_background(arr: np.ndarray, tolerance: float = 0.10) -> np.ndarray:
-    """
-    BFS flood-fill from the image border to zero out the connected background.
-    Works even when the AI generates a grey background (~35% luminance).
-    """
+    """BFS flood-fill from image border to zero out the connected background."""
     h, w = arr.shape
     border_vals = np.concatenate([arr[0, :], arr[-1, :], arr[1:-1, 0], arr[1:-1, -1]])
     bg_level = float(np.median(border_vals))
@@ -84,33 +82,25 @@ def _flood_fill_background(arr: np.ndarray, tolerance: float = 0.10) -> np.ndarr
 # ── Connectivity repair ───────────────────────────────────────────────────────
 
 def _close_subject_gaps(arr: np.ndarray, radius: int = 5) -> np.ndarray:
-    """
-    Morphological closing: dilate the subject mask then erode back.
-    Bridges thin gaps ≤ 2*radius pixels wide between disconnected components.
-    Gap pixels get a very low height so they form a thin base connection.
-    """
+    """Morphological closing to bridge thin gaps ≤ 2*radius pixels wide."""
     if not (arr > 0).any():
         return arr
 
     subject_pil = Image.fromarray((arr > 0).astype(np.uint8) * 255, mode='L')
 
-    # Dilate
     dilated = subject_pil
     for _ in range(radius):
         dilated = dilated.filter(ImageFilter.MaxFilter(3))
-
-    # Erode back (closing preserves outer boundary, fills interior gaps)
     closed = dilated
     for _ in range(radius):
         closed = closed.filter(ImageFilter.MinFilter(3))
 
-    closed_mask    = np.array(closed) > 0
-    bridge_pixels  = closed_mask & ~(arr > 0)
+    closed_mask   = np.array(closed) > 0
+    bridge_pixels = closed_mask & ~(arr > 0)
 
     if not bridge_pixels.any():
         return arr
 
-    # Propagate nearby heights into gap pixels × 0.15 (thin physical bridge)
     h_pil = Image.fromarray((arr * 255).astype(np.uint8), mode='L')
     for _ in range(radius):
         h_pil = h_pil.filter(ImageFilter.MaxFilter(3))
@@ -120,6 +110,23 @@ def _close_subject_gaps(arr: np.ndarray, radius: int = 5) -> np.ndarray:
     result[bridge_pixels] = prop[bridge_pixels] * 0.15
     logger.info("Gap closing: bridged %d pixels (radius=%d)", int(bridge_pixels.sum()), radius)
     return result
+
+
+# ── Vectorised helpers ────────────────────────────────────────────────────────
+
+def _normals(v0: np.ndarray, v1: np.ndarray, v2: np.ndarray) -> np.ndarray:
+    """Unit normals for N triangles. v0/v1/v2 are (N,3) float32."""
+    e1 = v1 - v0
+    e2 = v2 - v0
+    n  = np.cross(e1, e2)
+    lng = np.linalg.norm(n, axis=1, keepdims=True)
+    lng[lng < 1e-10] = 1.0
+    return (n / lng).astype(np.float32)
+
+
+def _verts(x: np.ndarray, y: np.ndarray, z: np.ndarray) -> np.ndarray:
+    """Stack 1-D arrays into (N,3) float32."""
+    return np.stack([x, y, z], axis=1).astype(np.float32)
 
 
 # ── STL builder ───────────────────────────────────────────────────────────────
@@ -139,113 +146,145 @@ def _build(
     logger.info("Building STL (res=%d, scaleZ=%.2f, enhance=%.2f, cutBelow=%.2f) …",
                 resolution, scale_z, detail_enhance, replace_below)
 
-    # ── Load & resize ───────────────────────────────────────────────────────
+    # ── Load & resize ────────────────────────────────────────────────────────
     img = Image.open(depth_path).convert("L")
     img = img.resize((resolution, resolution), Image.LANCZOS)
 
-    # Detail enhancement (contrast boost)
     if detail_enhance > 0:
-        factor = 1.0 + detail_enhance * 3.0
-        img = ImageEnhance.Contrast(img).enhance(factor)
+        img = ImageEnhance.Contrast(img).enhance(1.0 + detail_enhance * 3.0)
 
-    # Smooth to reduce micro-facet staircase noise
-    img = img.filter(ImageFilter.GaussianBlur(radius=2.0))
+    # Light blur: reduces staircase noise while keeping fine detail for G-code
+    img = img.filter(ImageFilter.GaussianBlur(radius=1.5))
 
     arr = np.array(img, dtype=np.float64) / 255.0
 
-    # ── Background & gap processing ─────────────────────────────────────────
+    # ── Background & gap processing ──────────────────────────────────────────
     arr = _flood_fill_background(arr, tolerance=0.10)
-
     if replace_below > 0:
         arr[arr < replace_below] = 0.0
-
     arr = _close_subject_gaps(arr, radius=5)
 
     h, w = arr.shape
 
-    # ── Coordinate grids (pre-convert to Python lists for fast inner loop) ──
+    # ── Height grid ──────────────────────────────────────────────────────────
     effective_depth = relief_depth_mm * max(scale_z, 0.01)
     zz = np.where(arr > 0, base_thickness_mm + arr * effective_depth, 0.0)
 
-    xs = np.linspace(0.0, width_mm,  w).tolist()
-    ys = np.linspace(0.0, height_mm, h).tolist()
-    zs = zz.tolist()                          # list-of-lists for fast [i][j] access
+    xs = np.linspace(0.0, width_mm,  w, dtype=np.float32)
+    ys = np.linspace(0.0, height_mm, h, dtype=np.float32)
 
-    # ── Active quads ────────────────────────────────────────────────────────
-    mask = arr > 0
+    # ── Active-quad mask ─────────────────────────────────────────────────────
+    mask   = arr > 0
     active = (
         mask[:-1, :-1] | mask[:-1, 1:]
         | mask[1:, :-1] | mask[1:, 1:]
     )
-    active_ij = np.argwhere(active)
-    logger.info("Active quads: %d / %d", len(active_ij), (h-1)*(w-1))
+    active_ij = np.argwhere(active)          # (N, 2)
+    N = len(active_ij)
+    logger.info("Active quads: %d / %d", N, (h-1)*(w-1))
 
-    # ── Pure-Python normal (faster than numpy for tiny 3-vectors) ───────────
-    def _n(ax, ay, az, bx, by, bz, cx, cy, cz):
-        v1x, v1y, v1z = bx-ax, by-ay, bz-az
-        v2x, v2y, v2z = cx-ax, cy-ay, cz-az
-        nx = v1y*v2z - v1z*v2y
-        ny = v1z*v2x - v1x*v2z
-        nz = v1x*v2y - v1y*v2x
-        lng = (nx*nx + ny*ny + nz*nz) ** 0.5
-        if lng > 1e-10:
-            return (nx/lng, ny/lng, nz/lng)
-        return (0.0, 0.0, 1.0)
+    i_idx = active_ij[:, 0]
+    j_idx = active_ij[:, 1]
 
-    tris: list = []
-    app = tris.append        # local alias avoids attribute lookup per iteration
+    # ── Corner coordinates (all vectorised, no Python loop) ──────────────────
+    x0 = xs[j_idx];     x1 = xs[j_idx + 1]
+    y0 = ys[i_idx];     y1 = ys[i_idx + 1]
 
-    for qi in range(len(active_ij)):
-        i, j = int(active_ij[qi, 0]), int(active_ij[qi, 1])
+    zf  = zz.astype(np.float32)
+    z00 = zf[i_idx,     j_idx]
+    z10 = zf[i_idx,     j_idx + 1]
+    z01 = zf[i_idx + 1, j_idx]
+    z11 = zf[i_idx + 1, j_idx + 1]
+    zero = np.zeros(N, dtype=np.float32)
 
-        # Corner coordinates (pulled from pre-built lists)
-        x0, x1 = xs[j], xs[j+1]
-        y0, y1 = ys[i], ys[i+1]
-        z00, z10 = zs[i][j],   zs[i][j+1]
-        z01, z11 = zs[i+1][j], zs[i+1][j+1]
+    # Top-surface vertices (N, 3)
+    V00 = _verts(x0, y0, z00);  V10 = _verts(x1, y0, z10)
+    V01 = _verts(x0, y1, z01);  V11 = _verts(x1, y1, z11)
+    # Bottom-cap vertices (z = 0)
+    B00 = _verts(x0, y0, zero); B10 = _verts(x1, y0, zero)
+    B01 = _verts(x0, y1, zero); B11 = _verts(x1, y1, zero)
 
-        # ── Top surface ────────────────────────────────────────────────────
-        app((_n(x0,y0,z00, x1,y0,z10, x0,y1,z01), (x0,y0,z00),(x1,y0,z10),(x0,y1,z01)))
-        app((_n(x1,y0,z10, x1,y1,z11, x0,y1,z01), (x1,y0,z10),(x1,y1,z11),(x0,y1,z01)))
+    batches: list[tuple] = []
 
-        # ── Bottom cap ─────────────────────────────────────────────────────
-        dn = (0.0, 0.0, -1.0)
-        app((dn, (x0,y0,0),(x0,y1,0),(x1,y0,0)))
-        app((dn, (x1,y0,0),(x0,y1,0),(x1,y1,0)))
+    def add(n, a, b, c):
+        batches.append((_normals(a, b, c) if n is None else n, a, b, c))
 
-        # ── Silhouette walls: each exposed edge gets a wall ─────────────────
-        # TOP edge (y=y0) → wall faces -y
-        if i == 0 or not active[i-1, j]:
-            app((_n(x0,y0,0, x1,y0,0, x1,y0,z10), (x0,y0,0),(x1,y0,0),(x1,y0,z10)))
-            app((_n(x0,y0,0, x1,y0,z10, x0,y0,z00), (x0,y0,0),(x1,y0,z10),(x0,y0,z00)))
+    # ── Top surface ───────────────────────────────────────────────────────────
+    add(None, V00, V10, V01)
+    add(None, V10, V11, V01)
 
-        # BOTTOM edge (y=y1) → wall faces +y
-        if i == h-2 or not active[i+1, j]:
-            app((_n(x0,y1,0, x0,y1,z01, x1,y1,0), (x0,y1,0),(x0,y1,z01),(x1,y1,0)))
-            app((_n(x0,y1,z01, x1,y1,z11, x1,y1,0), (x0,y1,z01),(x1,y1,z11),(x1,y1,0)))
+    # ── Bottom cap ────────────────────────────────────────────────────────────
+    dn = np.tile(np.float32([0, 0, -1]), (N, 1))
+    add(dn,   B00, B01, B10)
+    add(dn,   B10, B01, B11)
 
-        # LEFT edge (x=x0) → wall faces -x
-        if j == 0 or not active[i, j-1]:
-            app((_n(x0,y0,0, x0,y0,z00, x0,y1,z01), (x0,y0,0),(x0,y0,z00),(x0,y1,z01)))
-            app((_n(x0,y0,0, x0,y1,z01, x0,y1,0), (x0,y0,0),(x0,y1,z01),(x0,y1,0)))
+    # ── Silhouette walls (only exposed edges) ─────────────────────────────────
+    def exposed(axis: int, side: int) -> np.ndarray:
+        """Boolean (N,) — True where the neighbouring quad is absent."""
+        idx  = i_idx if axis == 0 else j_idx
+        size = h - 2  if axis == 0 else w - 2
+        boundary = (idx == 0) if side < 0 else (idx == size)
+        interior = ~boundary
+        nb = idx - 1 if side < 0 else idx + 1
+        nb_active = np.zeros(N, dtype=bool)
+        if axis == 0:
+            nb_active[interior] = active[nb[interior], j_idx[interior]]
+        else:
+            nb_active[interior] = active[i_idx[interior], nb[interior]]
+        return boundary | ~nb_active
 
-        # RIGHT edge (x=x1) → wall faces +x
-        if j == w-2 or not active[i, j+1]:
-            app((_n(x1,y0,0, x1,y1,z11, x1,y0,z10), (x1,y0,0),(x1,y1,z11),(x1,y0,z10)))
-            app((_n(x1,y0,0, x1,y1,0, x1,y1,z11), (x1,y0,0),(x1,y1,0),(x1,y1,z11)))
+    def wall(mask, a, b, c):
+        if mask.any():
+            add(None, a[mask], b[mask], c[mask])
 
-    _write_stl(tris, output_path)
-    logger.info("STL → %s  (%d triangles, %d KB)",
-                output_path, len(tris), output_path.stat().st_size // 1024)
+    # TOP wall   (row above missing → outward normal faces −y)
+    ix = exposed(0, -1)
+    wall(ix, B00, B10, V10); wall(ix, B00, V10, V00)
+
+    # BOTTOM wall (row below missing → outward normal faces +y)
+    ix = exposed(0, +1)
+    wall(ix, B01, V01, B11); wall(ix, V01, V11, B11)
+
+    # LEFT wall  (col left missing → outward normal faces −x)
+    ix = exposed(1, -1)
+    wall(ix, B00, V00, V01); wall(ix, B00, V01, B01)
+
+    # RIGHT wall (col right missing → outward normal faces +x)
+    ix = exposed(1, +1)
+    wall(ix, B10, V11, V10); wall(ix, B10, B11, V11)
+
+    _write_stl(batches, output_path)
+    logger.info("STL → %s  (%d KB)",
+                output_path, output_path.stat().st_size // 1024)
 
 
-def _write_stl(tris: list, path: Path) -> None:
-    with open(path, "wb") as f:
-        f.write(b"\x00" * 80)
-        f.write(struct.pack("<I", len(tris)))
-        for normal, v0, v1, v2 in tris:
-            f.write(struct.pack("<fff", *normal))
-            f.write(struct.pack("<fff", *v0))
-            f.write(struct.pack("<fff", *v1))
-            f.write(struct.pack("<fff", *v2))
-            f.write(struct.pack("<H", 0))
+# ── Fast binary STL writer ────────────────────────────────────────────────────
+
+_TRI_DTYPE = np.dtype([
+    ('normal', '<f4', (3,)),
+    ('v0',     '<f4', (3,)),
+    ('v1',     '<f4', (3,)),
+    ('v2',     '<f4', (3,)),
+    ('attr',   '<u2'),
+])
+
+
+def _write_stl(batches: list[tuple], path: Path) -> None:
+    """Concatenate all batches into one numpy array and write as binary STL."""
+    total = sum(len(n) for n, *_ in batches)
+
+    tris = np.zeros(total, dtype=_TRI_DTYPE)
+    offset = 0
+    for normals, v0, v1, v2 in batches:
+        m = len(normals)
+        tris['normal'][offset:offset+m] = normals
+        tris['v0'][offset:offset+m]     = v0
+        tris['v1'][offset:offset+m]     = v1
+        tris['v2'][offset:offset+m]     = v2
+        offset += m
+
+    with open(path, 'wb') as f:
+        f.write(b'\x00' * 80)
+        f.write(struct.pack('<I', total))
+        tris.tofile(f)
+    logger.info("Wrote %d triangles", total)
