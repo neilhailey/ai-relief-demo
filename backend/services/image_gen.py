@@ -108,6 +108,88 @@ async def generate_images(prompt: str, session_dir: Path, session_id: str) -> li
     return list(results)
 
 
+async def describe_image_subject(image_path: Path) -> str:
+    """Use GPT-4o-mini vision to extract a short carving subject description."""
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return "uploaded artwork"
+
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(api_key=api_key)
+
+    img_b64 = base64.b64encode(image_path.read_bytes()).decode()
+    try:
+        resp = await client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                    {"type": "text", "text": (
+                        "Describe the main subject of this image in 5–10 words for a CNC bas-relief carving design. "
+                        "Focus on the key visual element. Example: 'eagle in flight with outstretched wings'. "
+                        "Return only the description — no punctuation, no quotes, no explanation."
+                    )},
+                ],
+            }],
+            max_tokens=60,
+        )
+        subject = resp.choices[0].message.content.strip().rstrip(".,")
+        logger.info("Image subject detected: %r", subject)
+        return subject
+    except Exception as e:
+        logger.warning("Image description failed: %s", e)
+        return "uploaded artwork"
+
+
+async def enhance_uploaded_for_carving(
+    source_image: Path,
+    session_dir: Path,
+) -> tuple[Path, str]:
+    """
+    AI-convert a user-uploaded photo to a carving-ready bas-relief sculpture style.
+
+    Saves the result as image_1.png (index 1) so the user can choose between
+    the original (index 0) and the enhanced version (index 1) in the UI.
+    Returns (enhanced_path, subject_description).
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise ValueError("OPENAI_API_KEY is not set")
+
+    from openai import AsyncOpenAI
+    client = AsyncOpenAI(api_key=api_key)
+
+    subject = await describe_image_subject(source_image)
+
+    enhance_prompt_text = (
+        f"Transform this into a dramatic grayscale white-clay bas-relief sculpture carving of {subject}. "
+        "Preserve the exact composition and pose of the original image. "
+        "Convert to sculptural form: bright white/grey raised surfaces, dark recessed areas, "
+        "solid black background. High contrast, no colour, smooth surface gradients. "
+        "Professional bas-relief carving design suitable for CNC machining."
+    )
+
+    with open(source_image, "rb") as f:
+        response = await client.images.edit(
+            model="gpt-image-1",
+            image=f,
+            prompt=enhance_prompt_text,
+            n=1,
+            size="1024x1024",
+        )
+
+    enhanced_data = response.data[0].b64_json or ""
+    if not enhanced_data:
+        raise RuntimeError("Enhancement returned no image data")
+
+    # Save as image_1.png so /api/relief can find it via image_index=1
+    enhanced_path = session_dir / "image_1.png"
+    enhanced_path.write_bytes(base64.b64decode(enhanced_data))
+    logger.info("Enhanced image saved → %s  subject: %r", enhanced_path, subject)
+    return enhanced_path, subject
+
+
 async def generate_heightmap(
     prompt: str,
     session_dir: Path,

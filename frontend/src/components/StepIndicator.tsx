@@ -1,13 +1,25 @@
 type Step = 1 | 2 | 3 | 4
 
-const LABELS: Record<Step, string> = {
+const AI_LABELS: Record<Step, string> = {
   1: 'Describe',
   2: 'Choose',
   3: 'Preview',
   4: 'Relief',
 }
 
-export function StepIndicator({ current }: { current: Step }) {
+export const UPLOAD_LABELS: Record<Step, string> = {
+  1: 'Upload',
+  2: 'Enhance',
+  3: 'Preview',
+  4: 'Relief',
+}
+
+interface Props {
+  current: Step
+  labels?: Record<Step, string>
+}
+
+export function StepIndicator({ current, labels = AI_LABELS }: Props) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 0,
@@ -42,7 +54,7 @@ export function StepIndicator({ current }: { current: Step }) {
               }}>
                 {done ? '✓' : n}
               </span>
-              <span style={{ fontSize: 11, fontWeight: 500, color }}>{LABELS[n]}</span>
+              <span style={{ fontSize: 11, fontWeight: 500, color }}>{labels[n]}</span>
             </div>
           </div>
         )

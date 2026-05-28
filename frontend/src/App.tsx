@@ -1,21 +1,24 @@
 /// <reference types="vite/client" />
 import { useState } from 'react'
-import { StepIndicator } from './components/StepIndicator'
+import { StepIndicator, UPLOAD_LABELS } from './components/StepIndicator'
 import { PromptStep } from './components/PromptStep'
+import { UploadStep } from './components/UploadStep'
 import { SelectStep, ImageOption } from './components/SelectStep'
+import { EnhanceStep } from './components/EnhanceStep'
 import { PreviewStep } from './components/PreviewStep'
 import { ReliefStep, SliderParams } from './components/ReliefStep'
 
-type Step = 1 | 2 | 3 | 4
+type Step     = 1 | 2 | 3 | 4
+type FlowMode = 'ai' | 'upload'
 
 interface SessionState {
-  sessionId: string
-  prompt: string           // original user input — shown in the UI
-  enhancedPrompt: string   // AI-expanded version — used for all API calls
-  images: ImageOption[]
-  selectedIndex: number | null
-  heightmapUrl: string | null
-  stlUrl: string | null
+  sessionId:      string
+  prompt:         string         // shown in UI
+  enhancedPrompt: string         // used for API calls (heightmap generation)
+  images:         ImageOption[]
+  selectedIndex:  number | null
+  heightmapUrl:   string | null
+  stlUrl:         string | null
 }
 
 const API = import.meta.env.VITE_API_URL ?? ''
@@ -34,25 +37,26 @@ async function apiFetch<T>(path: string, body: unknown): Promise<T> {
 }
 
 export default function App() {
-  const [step,    setStep]    = useState<Step>(1)
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState<string | null>(null)
-  const [session, setSession] = useState<SessionState | null>(null)
+  const [step,     setStep]     = useState<Step>(1)
+  const [flowMode, setFlowMode] = useState<FlowMode>('ai')
+  const [loading,  setLoading]  = useState(false)
+  const [error,    setError]    = useState<string | null>(null)
+  const [session,  setSession]  = useState<SessionState | null>(null)
 
-  // ── Step 1 → 2: generate images ─────────────────────────────────────────
+  // ── AI flow: Step 1 → 2 ─────────────────────────────────────────────────
   async function handleGenerate(prompt: string) {
     setLoading(true); setError(null)
     try {
       const data = await apiFetch<{
-        session_id: string
-        images: ImageOption[]
+        session_id:      string
+        images:          ImageOption[]
         original_prompt: string
         enhanced_prompt: string
       }>('/api/generate', { prompt })
       setSession({
         sessionId:      data.session_id,
-        prompt:         data.original_prompt,   // shown in UI
-        enhancedPrompt: data.enhanced_prompt,   // used for API calls
+        prompt:         data.original_prompt,
+        enhancedPrompt: data.enhanced_prompt,
         images:         data.images,
         selectedIndex: null, heightmapUrl: null, stlUrl: null,
       })
@@ -62,13 +66,41 @@ export default function App() {
     } finally { setLoading(false) }
   }
 
-  // ── Step 2 → 3: select image ─────────────────────────────────────────────
+  // ── Upload flow: Step 1 → 2 ──────────────────────────────────────────────
+  function handleUpload(imageUrl: string, sessionId: string, subject: string) {
+    setSession({
+      sessionId,
+      prompt:         subject,
+      enhancedPrompt: subject,
+      images:         [{ index: 0, url: imageUrl }],
+      selectedIndex:  0,
+      heightmapUrl:   null,
+      stlUrl:         null,
+    })
+    setStep(2)
+  }
+
+  // ── Upload flow: Step 2 → 3 ──────────────────────────────────────────────
+  // imageIndex 0 = original uploaded, 1 = AI-enhanced
+  function handleEnhanceComplete(imageUrl: string, subject: string, imageIndex: number) {
+    setSession(s => {
+      if (!s) return s
+      // Ensure the chosen image is in the images array
+      const images = imageIndex === 1
+        ? [...s.images.filter(i => i.index !== 1), { index: 1, url: imageUrl }]
+        : s.images
+      return { ...s, images, selectedIndex: imageIndex, prompt: subject, enhancedPrompt: subject }
+    })
+    setStep(3)
+  }
+
+  // ── AI flow: Step 2 → 3 ─────────────────────────────────────────────────
   function handleSelectImage(index: number) {
     setSession(s => s ? { ...s, selectedIndex: index } : s)
     setStep(3)
   }
 
-  // ── Step 3 → 4: create model ─────────────────────────────────────────────
+  // ── Step 3 → 4: create 3D model ─────────────────────────────────────────
   async function handleCreateModel(removeBg: boolean) {
     if (!session || session.selectedIndex === null) return
     setLoading(true); setError(null)
@@ -77,7 +109,7 @@ export default function App() {
         '/api/relief', {
           session_id:     session.sessionId,
           image_index:    session.selectedIndex,
-          prompt:         session.enhancedPrompt,  // richer prompt → better heightmap
+          prompt:         session.enhancedPrompt,
           replace_below:  removeBg ? 0.08 : 0.0,
           detail_enhance: 0.25,
           scale_z:        1.0,
@@ -86,7 +118,6 @@ export default function App() {
       )
       setSession(s => s ? {
         ...s,
-        // heightmap_url is a data: URL; stl_url is a relative /api/files/... path
         heightmapUrl: data.heightmap_url,
         stlUrl:       `${API}${data.stl_url}`,
       } : s)
@@ -96,7 +127,7 @@ export default function App() {
     } finally { setLoading(false) }
   }
 
-  // ── Slider update: re-run STL from existing heightmap ────────────────────
+  // ── Slider update ────────────────────────────────────────────────────────
   async function handleUpdateStl(params: SliderParams): Promise<string> {
     if (!session) throw new Error('No session')
     const data = await apiFetch<{ stl_url: string }>(
@@ -104,14 +135,13 @@ export default function App() {
     )
     return `${API}${data.stl_url}`
   }
-  // params already includes draft_angle (degrees) forwarded from ReliefStep sliders
 
   function handleRegenerate() {
-    if (session) handleGenerate(session.prompt)   // re-enhances from original
+    if (session) handleGenerate(session.prompt)
   }
 
   function handleStartOver() {
-    setStep(1); setSession(null); setError(null); setLoading(false)
+    setStep(1); setSession(null); setError(null); setLoading(false); setFlowMode('ai')
   }
 
   const selectedImage = session?.images.find(i => i.index === session.selectedIndex)
@@ -146,10 +176,13 @@ export default function App() {
 
       {/* Step indicator */}
       <div style={{ flexShrink: 0, maxWidth: 900, width: '100%', margin: '0 auto' }}>
-        <StepIndicator current={step} />
+        <StepIndicator
+          current={step}
+          labels={flowMode === 'upload' ? UPLOAD_LABELS : undefined}
+        />
       </div>
 
-      {/* Error */}
+      {/* Error banner */}
       {error && (
         <div style={{
           width: '100%', maxWidth: 680, margin: '12px auto 0',
@@ -164,12 +197,26 @@ export default function App() {
         </div>
       )}
 
-      {/* Main */}
+      {/* Main content */}
       <main style={{ flex: 1, width: '100%', maxWidth: step === 4 ? '100%' : 960, margin: '0 auto' }}>
-        {step === 1 && (
-          <PromptStep onGenerate={handleGenerate} loading={loading} />
+
+        {/* ── Step 1 ── */}
+        {step === 1 && flowMode === 'ai' && (
+          <PromptStep
+            onGenerate={handleGenerate}
+            loading={loading}
+            onSwitchToUpload={() => setFlowMode('upload')}
+          />
         )}
-        {step === 2 && session && (
+        {step === 1 && flowMode === 'upload' && (
+          <UploadStep
+            onUpload={handleUpload}
+            onSwitchToAI={() => setFlowMode('ai')}
+          />
+        )}
+
+        {/* ── Step 2 ── */}
+        {step === 2 && flowMode === 'ai' && session && (
           <SelectStep
             key={session.sessionId}
             prompt={session.prompt}
@@ -180,6 +227,16 @@ export default function App() {
             loading={loading}
           />
         )}
+        {step === 2 && flowMode === 'upload' && session && (
+          <EnhanceStep
+            sessionId={session.sessionId}
+            originalUrl={session.images[0]?.url ?? ''}
+            subject={session.prompt}
+            onComplete={handleEnhanceComplete}
+          />
+        )}
+
+        {/* ── Step 3 (shared) ── */}
         {step === 3 && session && selectedImage && (
           <PreviewStep
             prompt={session.prompt}
@@ -189,6 +246,8 @@ export default function App() {
             loading={loading}
           />
         )}
+
+        {/* ── Step 4 (shared) ── */}
         {step === 4 && session && session.heightmapUrl && session.stlUrl && selectedImage && (
           <ReliefStep
             prompt={session.prompt}
@@ -200,6 +259,7 @@ export default function App() {
             onUpdateStl={handleUpdateStl}
           />
         )}
+
       </main>
 
       {step !== 4 && (
@@ -209,11 +269,9 @@ export default function App() {
           display: 'flex', justifyContent: 'center', gap: 20,
           flexShrink: 0,
         }}>
-          <span>Steps 1–2: gpt-image-1 via OpenAI</span>
+          <span>AI flow: gpt-image-1 via OpenAI</span>
           <span>·</span>
-          <span>Step 3 coming: AI Toolpath Generation</span>
-          <span>·</span>
-          <span>Step 4 coming: Hardware Execution</span>
+          <span>Upload flow: your image → AI enhance → 3D relief</span>
         </footer>
       )}
     </div>

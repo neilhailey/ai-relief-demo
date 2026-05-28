@@ -124,9 +124,10 @@ function pickRandom(n: number): string[] {
 interface Props {
   onGenerate: (prompt: string) => void
   loading: boolean
+  onSwitchToUpload: () => void
 }
 
-export function PromptStep({ onGenerate, loading }: Props) {
+export function PromptStep({ onGenerate, loading, onSwitchToUpload }: Props) {
   const [prompt,   setPrompt]   = useState('')
   // Lazy initializer — runs once on mount, gives a fresh random set each page load
   const [examples] = useState<string[]>(() => pickRandom(7))
@@ -238,6 +239,23 @@ export function PromptStep({ onGenerate, loading }: Props) {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Upload link */}
+      <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
+        Already have an image?{' '}
+        <button
+          onClick={onSwitchToUpload}
+          disabled={loading}
+          style={{
+            background: 'none', border: 'none', padding: 0,
+            color: 'var(--accent)', fontSize: 13,
+            cursor: loading ? 'default' : 'pointer',
+            textDecoration: 'underline',
+          }}
+        >
+          Upload your own →
+        </button>
       </div>
 
     </div>

@@ -4,12 +4,15 @@ import uuid
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from services.image_gen import enhance_prompt, generate_images, generate_heightmap
+from services.image_gen import (
+    enhance_prompt, generate_images, generate_heightmap,
+    describe_image_subject, enhance_uploaded_for_carving,
+)
 from services.stl_builder import depth_to_stl
 
 load_dotenv()
@@ -48,6 +51,10 @@ class ReliefRequest(BaseModel):
     draft_angle: float    = Field(10.0, ge=0.0, le=45.0)   # degrees, 0 = vertical walls
 
 
+class EnhanceImageRequest(BaseModel):
+    session_id: str
+
+
 class UpdateReliefRequest(BaseModel):
     """Re-run STL from existing heightmap with new slider values."""
     session_id: str
@@ -62,6 +69,74 @@ class UpdateReliefRequest(BaseModel):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.post("/api/upload")
+async def api_upload(file: UploadFile = File(...)):
+    """Accept a user image, create a session, and return the image URL + subject description."""
+    import io as _io
+    import base64 as _b64
+    from PIL import Image as PILImage
+
+    content = await file.read()
+    if len(content) > 30 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 30 MB)")
+
+    try:
+        pil_img = PILImage.open(_io.BytesIO(content)).convert("RGB")
+        # Fit inside 1024×1024 with black letterbox to preserve aspect ratio
+        pil_img.thumbnail((1024, 1024), PILImage.LANCZOS)
+        canvas = PILImage.new("RGB", (1024, 1024), (0, 0, 0))
+        x, y = (1024 - pil_img.width) // 2, (1024 - pil_img.height) // 2
+        canvas.paste(pil_img, (x, y))
+        buf = _io.BytesIO()
+        canvas.save(buf, "PNG")
+        image_bytes = buf.getvalue()
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Cannot read image: {e}")
+
+    session_id = str(uuid.uuid4())[:8]
+    session_dir = OUTPUT_DIR / session_id
+    session_dir.mkdir(exist_ok=True)
+
+    # image_0.png = original (used if user skips enhancement)
+    # uploaded.png = immutable original (source for enhancement)
+    (session_dir / "image_0.png").write_bytes(image_bytes)
+    (session_dir / "uploaded.png").write_bytes(image_bytes)
+
+    subject = await describe_image_subject(session_dir / "uploaded.png")
+
+    b64 = _b64.b64encode(image_bytes).decode()
+    return {
+        "session_id": session_id,
+        "image_url":  f"data:image/png;base64,{b64}",
+        "subject":    subject,
+    }
+
+
+@app.post("/api/enhance-image")
+async def api_enhance_image(req: EnhanceImageRequest):
+    """AI-convert uploaded image to sculptural carving style. Saves as image_1.png."""
+    import base64 as _b64
+
+    if not req.session_id.replace("-", "").isalnum():
+        raise HTTPException(status_code=400, detail="Invalid session_id")
+
+    session_dir = OUTPUT_DIR / req.session_id
+    uploaded = session_dir / "uploaded.png"
+    if not uploaded.exists():
+        raise HTTPException(status_code=404, detail="Session image not found")
+
+    try:
+        enhanced_path, subject = await enhance_uploaded_for_carving(uploaded, session_dir)
+        b64 = _b64.b64encode(enhanced_path.read_bytes()).decode()
+        return {
+            "enhanced_url": f"data:image/png;base64,{b64}",
+            "subject":      subject,
+        }
+    except Exception as e:
+        logger.error("Image enhancement failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Enhancement failed: {e}")
 
 
 @app.post("/api/generate")
