@@ -164,6 +164,11 @@ def _build(
         arr[arr < replace_below] = 0.0
     arr = _close_subject_gaps(arr, radius=5)
 
+    # Flip vertically so image top → STL Y=height_mm → world Z=-height_mm (far side).
+    # Without this, row 0 (image top) ends up at world Z=0 (near camera), making
+    # the 3D view appear as a vertical flip / mirror of the original image.
+    arr = np.flipud(arr)
+
     h, w = arr.shape
 
     # ── Height grid ──────────────────────────────────────────────────────────
