@@ -9,9 +9,7 @@ logger = logging.getLogger(__name__)
 # ── Visual render prompt (shown to user for selection) ──────────────────────
 _VISUAL_SUFFIX = (
     ", dramatic studio lighting, grayscale, white clay bas-relief sculpture "
-    "on a plain dark background, highly detailed, professional photography, "
-    "no UI overlays, no selection boxes, no bounding boxes, no viewfinders, "
-    "no annotations, no text, no labels, no rectangles, no frames overlaid on the subject"
+    "on a plain dark background, highly detailed, professional photography"
 )
 
 # ── Heightmap prompt (used for STL generation) ──────────────────────────────
@@ -26,8 +24,6 @@ _HEIGHTMAP_TEMPLATE = (
     "highest raised features are brightest white, shallower areas are lighter grey. "
     "(3) Smooth continuous gradients — no shadows, no cast shadows, no specular highlights. "
     "(4) The boundary between subject and background is sharp — black background, white/grey subject. "
-    "(5) Absolutely NO UI overlays, selection boxes, bounding rectangles, viewfinders, annotations, "
-    "text, labels, or geometric frames — these would be baked into the 3D surface. "
     "Output looks like a topographic heat-map: brightness encodes height above a flat black plane."
 )
 
