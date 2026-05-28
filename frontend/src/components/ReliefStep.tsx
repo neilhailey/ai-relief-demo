@@ -25,6 +25,7 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
   const [replaceBelow,  setReplaceBelow]  = useState(5)     // 0–50 displayed as %
   const [currentStlUrl, setCurrentStlUrl] = useState(initialStlUrl)
   const [updating,      setUpdating]      = useState(false)
+  const [modelLoading,  setModelLoading]  = useState(true)  // overlay until first STL loads
   const [activeView,    setActiveView]    = useState<CameraPreset>('iso')
   const debounceRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const goToPresetRef = useRef<((p: CameraPreset) => void) | null>(null)
@@ -46,7 +47,12 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
     }, 600)
   }, [onUpdateStl])
 
+  // Scale Z is applied instantly as a Three.js transform — no STL rebuild needed
+  // for the live preview. We still queue a background rebuild so the downloaded
+  // STL has the correct scale baked into the geometry.
   function handleScaleZ(v: number)  { setScaleZ(v);        triggerUpdate(v, detailEnhance, replaceBelow) }
+
+  // Detail / Replace Below change actual mesh geometry — requires a rebuild.
   function handleDetail(v: number)  { setDetailEnhance(v); triggerUpdate(scaleZ, v, replaceBelow)        }
   function handleReplace(v: number) { setReplaceBelow(v);  triggerUpdate(scaleZ, detailEnhance, v)       }
 
@@ -77,7 +83,7 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
           min={10} max={300} step={5}
           display={v => `${v}%`}
           onChange={handleScaleZ}
-          disabled={updating}
+          disabled={false}  // instant — always interactive
         />
         <Slider
           label="Detail Enhancement"
@@ -209,19 +215,45 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
           ))}
         </div>
 
-        <Suspense fallback={
-          <div style={{
-            height: '100%', display: 'flex', alignItems: 'center',
-            justifyContent: 'center', color: 'var(--muted)', fontSize: 13,
-          }}>
-            Loading 3D viewer…
-          </div>
-        }>
+        <Suspense fallback={null}>
           <StlViewer
             url={currentStlUrl}
+            scaleZ={scaleZ / 100}
             onReady={fn => { goToPresetRef.current = fn }}
+            onLoadStart={() => {/* keep current model visible — no overlay after first load */}}
+            onLoadEnd={() => setModelLoading(false)}
           />
         </Suspense>
+
+        {/* Loading overlay — rendered as a CSS sibling OUTSIDE the WebGL canvas
+            so it isn't obscured by the browser's compositor layer */}
+        {modelLoading && (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            gap: 16,
+            background: '#0a0d12',
+            pointerEvents: 'none',
+            zIndex: 20,
+          }}>
+            <div style={{
+              width: 52, height: 52,
+              borderRadius: '50%',
+              border: '3px solid rgba(249,115,22,0.15)',
+              borderTopColor: '#f97316',
+              animation: 'spin 0.9s linear infinite',
+            }} />
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 14, color: 'var(--text-dim)', fontWeight: 500, marginBottom: 4 }}>
+                Building 3D relief…
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                usually 15–30 s
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Start over */}
         <button
