@@ -42,9 +42,10 @@ class ReliefRequest(BaseModel):
     session_id: str
     image_index: int
     prompt: str                          # needed to generate heightmap
-    scale_z: float       = Field(1.0,  ge=0.1, le=3.0)
+    scale_z: float        = Field(1.0,  ge=0.1, le=3.0)
     detail_enhance: float = Field(0.25, ge=0.0, le=1.0)
     replace_below: float  = Field(0.05, ge=0.0, le=0.9)
+    draft_angle: float    = Field(10.0, ge=0.0, le=45.0)   # degrees, 0 = vertical walls
 
 
 class UpdateReliefRequest(BaseModel):
@@ -53,6 +54,7 @@ class UpdateReliefRequest(BaseModel):
     scale_z: float        = Field(1.0,  ge=0.1, le=3.0)
     detail_enhance: float = Field(0.25, ge=0.0, le=1.0)
     replace_below: float  = Field(0.05, ge=0.0, le=0.9)
+    draft_angle: float    = Field(10.0, ge=0.0, le=45.0)
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -112,6 +114,7 @@ async def api_relief(req: ReliefRequest):
             scale_z=req.scale_z,
             detail_enhance=req.detail_enhance,
             replace_below=req.replace_below,
+            draft_angle=req.draft_angle,
         )
 
         import base64 as _b64
@@ -143,6 +146,7 @@ async def api_update_relief(req: UpdateReliefRequest):
             scale_z=req.scale_z,
             detail_enhance=req.detail_enhance,
             replace_below=req.replace_below,
+            draft_angle=req.draft_angle,
         )
         # Return a cache-busted URL so the browser reloads the 3D viewer
         return {"stl_url": f"/api/files/{req.session_id}/relief.stl"}
