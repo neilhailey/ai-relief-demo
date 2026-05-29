@@ -3,6 +3,10 @@ import * as THREE from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
+// All models are normalised to this size (longest dimension) so that camera,
+// clip planes, fog and zoom limits are always stable fixed values.
+const NORM_SIZE = 100
+
 export type CameraPreset = 'iso' | 'top' | 'front' | 'right'
 
 interface Props {
@@ -15,17 +19,20 @@ interface Props {
 }
 
 export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, onLoadError }: Props) {
-  const mountRef     = useRef<HTMLDivElement>(null)
-  const rendererRef  = useRef<THREE.WebGLRenderer | null>(null)
-  const sceneRef     = useRef<THREE.Scene | null>(null)
-  const cameraRef    = useRef<THREE.PerspectiveCamera | null>(null)
-  const controlRef   = useRef<OrbitControls | null>(null)
-  const meshRef      = useRef<THREE.Mesh | null>(null)
-  const planeRef     = useRef<THREE.Mesh | null>(null)
-  const sizeRef      = useRef(new THREE.Vector3())
-  const firstLoadRef = useRef(true)
+  const mountRef        = useRef<HTMLDivElement>(null)
+  const rendererRef     = useRef<THREE.WebGLRenderer | null>(null)
+  const sceneRef        = useRef<THREE.Scene | null>(null)
+  const cameraRef       = useRef<THREE.PerspectiveCamera | null>(null)
+  const controlRef      = useRef<OrbitControls | null>(null)
+  const meshRef         = useRef<THREE.Mesh | null>(null)
+  const planeRef        = useRef<THREE.Mesh | null>(null)
+  const sizeRef         = useRef(new THREE.Vector3())
+  const firstLoadRef    = useRef(true)
+  // Persists the per-model normalisation factor so the instant-scaleZ update
+  // can multiply by it: scale.z = normalizeScale * scaleZ
+  const normScaleRef    = useRef(1)
 
-  // Stable refs for callbacks and scaleZ so closures always read the latest value
+  // Stable refs for callbacks / scaleZ so closures always read the latest value
   const onReadyRef      = useRef(onReady)
   const onLoadStartRef  = useRef(onLoadStart)
   const onLoadEndRef    = useRef(onLoadEnd)
@@ -37,10 +44,11 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
   useEffect(() => { onLoadErrorRef.current = onLoadError }, [onLoadError])
   useEffect(() => { scaleZRef.current      = scaleZ      }, [scaleZ])
 
-  // ── Instant scale update: no geometry reload required ─────────────────────
+  // ── Instant scaleZ update (no geometry reload) ────────────────────────────
   useEffect(() => {
     if (meshRef.current) {
-      meshRef.current.scale.z = scaleZ
+      // Multiply by normalisation factor so depth stays correct
+      meshRef.current.scale.z = normScaleRef.current * scaleZ
     }
   }, [scaleZ])
 
@@ -49,44 +57,49 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
     const mount = mountRef.current
     if (!mount) return
 
-    const W = mount.clientWidth || 800
+    const W = mount.clientWidth  || 800
     const H = mount.clientHeight || 600
 
     const renderer = new THREE.WebGLRenderer({ antialias: true })
     renderer.setPixelRatio(window.devicePixelRatio)
     renderer.setSize(W, H)
     renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.shadowMap.type    = THREE.PCFSoftShadowMap
     mount.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x0d1117)
-    scene.fog = new THREE.Fog(0x0d1117, 300, 600)
+    // Fog distances tuned for NORM_SIZE = 100
+    scene.fog = new THREE.Fog(0x0d1117, NORM_SIZE * 8, NORM_SIZE * 18)
     sceneRef.current = scene
 
-    const camera = new THREE.PerspectiveCamera(42, W / H, 0.1, 2000)
+    // near/far tuned for NORM_SIZE = 100; models far smaller or larger are
+    // scaled to 100 units so these values are always appropriate
+    const camera = new THREE.PerspectiveCamera(42, W / H, 0.5, NORM_SIZE * 60)
     cameraRef.current = camera
 
+    // Light positions tuned for 100-unit world
     scene.add(new THREE.AmbientLight(0xffffff, 0.35))
     const key = new THREE.DirectionalLight(0xfff3e0, 1.5)
-    key.position.set(60, 140, 60)
+    key.position.set(NORM_SIZE * 0.6, NORM_SIZE * 1.4, NORM_SIZE * 0.6)
     key.castShadow = true
     key.shadow.mapSize.set(1024, 1024)
     scene.add(key)
     const fill = new THREE.DirectionalLight(0x3b82f6, 0.3)
-    fill.position.set(-100, 60, 40)
+    fill.position.set(-NORM_SIZE, NORM_SIZE * 0.6, NORM_SIZE * 0.4)
     scene.add(fill)
     const rim = new THREE.DirectionalLight(0xffffff, 0.15)
-    rim.position.set(0, -80, -60)
+    rim.position.set(0, -NORM_SIZE * 0.8, -NORM_SIZE * 0.6)
     scene.add(rim)
 
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.dampingFactor = 0.06
     controls.autoRotate    = false
-    // minDistance / maxDistance are set dynamically after the geometry loads
-    // so they scale correctly regardless of the model's coordinate units.
+    // Zoom limits for 100-unit world — set once here, not overridden later
+    controls.minDistance   = NORM_SIZE * 0.05   // 5 units — very close
+    controls.maxDistance   = NORM_SIZE * 15     // 1500 units — far out
     controlRef.current = controls
 
     let raf: number
@@ -132,12 +145,11 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
 
     onLoadStartRef.current?.()
 
-    // Keep the OLD mesh visible while loading so the view never goes blank.
-    // It will be swapped out atomically once the new geometry is ready.
-
     const cam  = camera
     const ctrl = controls
+
     function goToPreset(preset: CameraPreset) {
+      // sizeRef already holds the *normalised* world-space size (~100 units)
       const sz = sizeRef.current
       const d  = Math.max(sz.x, sz.y, sz.z) * 1.4
       switch (preset) {
@@ -161,16 +173,21 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
       bbox.getCenter(center)
       geometry.translate(-center.x, -center.y, -center.z)
 
-      const size = new THREE.Vector3()
-      bbox.getSize(size)
-      sizeRef.current = size
+      // Raw size in the STL's own coordinate units (could be anything)
+      const rawSize = new THREE.Vector3()
+      bbox.getSize(rawSize)
 
-      // Scale zoom limits to match this model's actual coordinate units.
-      // Without this, a model with small coordinates gets pushed past minDistance
-      // and appears tiny with no way to zoom in.
-      const maxDim = Math.max(size.x, size.y, size.z)
-      ctrl.minDistance = maxDim * 0.05
-      ctrl.maxDistance = maxDim * 20
+      // ── Normalise to NORM_SIZE world-units ──────────────────────────────
+      // Tripo STLs are often in metre scale (0.1–0.5 units); relief STLs are
+      // in pixel scale (512–1024 units).  Scaling to a fixed world size means
+      // the camera, fog, clip planes and zoom limits all stay correct.
+      const maxRaw       = Math.max(rawSize.x, rawSize.y, rawSize.z)
+      const normScale    = maxRaw > 0 ? NORM_SIZE / maxRaw : 1
+      normScaleRef.current = normScale
+
+      // World-space size after normalisation (used by goToPreset + plane)
+      const normSize = rawSize.clone().multiplyScalar(normScale)
+      sizeRef.current = normSize
 
       const material = new THREE.MeshPhongMaterial({
         color:     0xc8922a,
@@ -183,7 +200,8 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
       mesh.castShadow    = true
       mesh.receiveShadow = true
       mesh.rotation.x    = -Math.PI / 2
-      mesh.scale.z       = scaleZRef.current   // apply current scale immediately
+      // Apply normalisation + current scaleZ together
+      mesh.scale.set(normScale, normScale, normScale * scaleZRef.current)
 
       // ── Atomic swap: remove old, add new ──────────────────────────────────
       if (meshRef.current) {
@@ -200,11 +218,11 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
       meshRef.current = mesh
 
       const plane = new THREE.Mesh(
-        new THREE.PlaneGeometry(500, 500),
+        new THREE.PlaneGeometry(NORM_SIZE * 8, NORM_SIZE * 8),
         new THREE.ShadowMaterial({ opacity: 0.25 }),
       )
       plane.rotation.x    = -Math.PI / 2
-      plane.position.y    = -size.z / 2 - 1
+      plane.position.y    = -normSize.z / 2 - 1
       plane.receiveShadow = true
       scene.add(plane)
       planeRef.current = plane
