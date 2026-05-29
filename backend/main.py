@@ -14,7 +14,7 @@ from services.image_gen import (
     describe_image_subject, enhance_uploaded_for_carving,
 )
 from services.stl_builder import depth_to_stl
-from services.tripo import generate_3d_model
+from services.tripo import create_tripo_task, finish_tripo_task
 
 load_dotenv()
 
@@ -58,6 +58,24 @@ class EnhanceImageRequest(BaseModel):
 
 class Generate3dRequest(BaseModel):
     prompt: str
+
+
+# ── In-memory 3D generation job store ────────────────────────────────────────
+# Keyed by job_id (short uuid). Cleared on server restart (acceptable for demo).
+
+from typing import TypedDict
+
+class _Job(TypedDict):
+    status:       str          # pending | running | success | failed
+    progress:     int          # 0–100 (real value from Tripo)
+    tripo_status: str          # raw Tripo status string for display
+    session_id:   str | None
+    glb_url:      str | None
+    stl_url:      str | None
+    rendered_url: str | None
+    error:        str | None
+
+_jobs: dict[str, _Job] = {}
 
 
 class UpdateReliefRequest(BaseModel):
@@ -246,8 +264,11 @@ async def api_update_relief(req: UpdateReliefRequest):
 
 
 @app.post("/api/generate-3d")
-async def api_generate_3d(req: Generate3dRequest):
-    """Generate a full 3D mesh from a text prompt via Tripo3D."""
+async def api_generate_3d_start(req: Generate3dRequest):
+    """
+    Submit a 3D generation job. Returns job_id immediately.
+    Poll GET /api/generate-3d/status/{job_id} for progress.
+    """
     if not req.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty")
 
@@ -255,26 +276,67 @@ async def api_generate_3d(req: Generate3dRequest):
     if not tripo_key:
         raise HTTPException(status_code=500, detail="TRIPO_API_KEY is not configured on this server")
 
+    prompt = req.prompt.strip()
+    job_id = str(uuid.uuid4())[:8]
+    _jobs[job_id] = {
+        "status": "pending", "progress": 0, "tripo_status": "queued",
+        "session_id": None, "glb_url": None, "stl_url": None,
+        "rendered_url": None, "error": None,
+    }
+
+    # Submit to Tripo3D right now so the task is in their queue immediately.
+    # This is fast (<1 s) and gives us a task_id we can poll in the background.
+    try:
+        task_id = await create_tripo_task(tripo_key, prompt)
+    except Exception as e:
+        _jobs[job_id]["status"] = "failed"
+        _jobs[job_id]["error"]  = str(e)
+        raise HTTPException(status_code=500, detail=f"Failed to start Tripo task: {e}")
+
+    # Kick off background polling — the response returns while this runs.
+    asyncio.create_task(_poll_and_finish(job_id, task_id, tripo_key, prompt))
+
+    return {"job_id": job_id}
+
+
+@app.get("/api/generate-3d/status/{job_id}")
+async def api_generate_3d_status(job_id: str):
+    """Return current status of a 3D generation job."""
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+async def _poll_and_finish(job_id: str, task_id: str, tripo_key: str, prompt: str) -> None:
+    """Background coroutine: poll Tripo, download GLB, convert to STL, update job."""
+    _jobs[job_id]["status"] = "running"
+
     session_id  = str(uuid.uuid4())[:8]
     session_dir = OUTPUT_DIR / session_id
     session_dir.mkdir(exist_ok=True)
-    (session_dir / "prompt.txt").write_text(req.prompt.strip())
+    (session_dir / "prompt.txt").write_text(prompt)
+
+    def _on_progress(pct: int, tripo_status: str) -> None:
+        _jobs[job_id]["progress"]     = pct
+        _jobs[job_id]["tripo_status"] = tripo_status
 
     try:
-        _glb_path, _stl_path, rendered_data_url = await generate_3d_model(
-            tripo_key, req.prompt.strip(), session_dir,
+        _glb, _stl, rendered_url = await finish_tripo_task(
+            tripo_key, task_id, session_dir, on_progress=_on_progress,
         )
-        response: dict = {
-            "session_id": session_id,
-            "glb_url":    f"/api/files/{session_id}/model.glb",
-            "stl_url":    f"/api/files/{session_id}/model.stl",
-        }
-        if rendered_data_url:
-            response["rendered_url"] = rendered_data_url
-        return response
+        _jobs[job_id].update({
+            "status":      "success",
+            "progress":    100,
+            "session_id":  session_id,
+            "glb_url":     f"/api/files/{session_id}/model.glb",
+            "stl_url":     f"/api/files/{session_id}/model.stl",
+            "rendered_url": rendered_url,
+        })
+        logger.info("Job %s complete (session %s)", job_id, session_id)
     except Exception as e:
-        logger.error("3D model generation failed: %s", e)
-        raise HTTPException(status_code=500, detail=f"3D model generation failed: {e}")
+        logger.error("Job %s failed: %s", job_id, e)
+        _jobs[job_id].update({"status": "failed", "error": str(e)})
 
 
 @app.get("/api/files/{session_id}/{filename}")

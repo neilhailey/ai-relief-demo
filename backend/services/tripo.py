@@ -3,8 +3,8 @@ Tripo3D API integration — text-to-3D mesh generation.
 
 Flow
 ----
-1. POST /task  → task_id
-2. Poll GET /task/{id} until status == "success"
+1. POST /task  → task_id  (fast, returns immediately)
+2. Poll GET /task/{id} until status == "success"  (30–300 s, reported via callback)
 3. Download GLB from output.model
 4. Download rendered preview image (optional)
 5. Convert GLB → binary STL using trimesh (CPU, no GPU needed)
@@ -12,6 +12,7 @@ Flow
 
 import asyncio
 import logging
+from collections.abc import Callable
 from pathlib import Path
 
 import aiohttp
@@ -19,65 +20,80 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 TRIPO_API     = "https://api.tripo3d.ai/v2/openapi"
-POLL_INTERVAL = 4    # seconds between status polls
-POLL_TIMEOUT  = 270  # max seconds to wait (4.5 minutes)
+POLL_INTERVAL = 5      # seconds between status polls
+POLL_TIMEOUT  = 600    # max seconds to wait (10 minutes — Tripo queue can be slow)
 
 
-async def generate_3d_model(
-    api_key: str,
-    prompt: str,
-    session_dir: Path,
-) -> tuple[Path, Path, str | None]:
-    """
-    Generate a full 3D mesh via Tripo3D text-to-model.
-
-    Returns
-    -------
-    (glb_path, stl_path, rendered_image_data_url | None)
-    """
-    if not api_key:
-        raise RuntimeError("TRIPO_API_KEY is not set — add it to your environment")
-
+async def create_tripo_task(api_key: str, prompt: str) -> str:
+    """Submit a text-to-model job and return the Tripo task_id immediately."""
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type":  "application/json",
     }
-
+    payload = {
+        "type":          "text_to_model",
+        "model_version": "v2.5-20250123",
+        "prompt":        prompt,
+        "texture":       True,
+        "pbr":           True,
+    }
     async with aiohttp.ClientSession() as http:
-
-        # ── 1. Create task ────────────────────────────────────────────────────
-        payload = {
-            "type":          "text_to_model",
-            "model_version": "v2.5-20250123",
-            "prompt":        prompt,
-            "texture":       True,
-            "pbr":           True,
-        }
         async with http.post(f"{TRIPO_API}/task", headers=headers, json=payload) as resp:
             if resp.status != 200:
                 body = await resp.text()
                 raise RuntimeError(f"Tripo task creation failed ({resp.status}): {body[:300]}")
             data = await resp.json()
 
-        if data.get("code", -1) != 0:
-            raise RuntimeError(f"Tripo API error: {data.get('message', data)}")
+    if data.get("code", -1) != 0:
+        raise RuntimeError(f"Tripo API error: {data.get('message', data)}")
 
-        task_id = data["data"]["task_id"]
-        logger.info("Tripo task created: %s", task_id)
+    task_id = data["data"]["task_id"]
+    logger.info("Tripo task created: %s", task_id)
+    return task_id
 
-        # ── 2. Poll until done ────────────────────────────────────────────────
-        model_url    = None
-        rendered_url = None
-        elapsed      = 0
 
+async def finish_tripo_task(
+    api_key: str,
+    task_id: str,
+    session_dir: Path,
+    on_progress: Callable[[int, str], None] | None = None,
+) -> tuple[Path, Path, str | None]:
+    """
+    Poll a Tripo task until it finishes, download the GLB, convert to STL.
+
+    Parameters
+    ----------
+    on_progress(pct: int, tripo_status: str)
+        Called whenever the Tripo progress value changes.
+
+    Returns
+    -------
+    (glb_path, stl_path, rendered_data_url | None)
+    """
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type":  "application/json",
+    }
+
+    model_url    = None
+    rendered_url = None
+    elapsed      = 0
+    last_pct     = -1
+
+    async with aiohttp.ClientSession() as http:
+
+        # ── Poll until done ───────────────────────────────────────────────────
         while elapsed < POLL_TIMEOUT:
             await asyncio.sleep(POLL_INTERVAL)
             elapsed += POLL_INTERVAL
 
             try:
-                async with http.get(f"{TRIPO_API}/task/{task_id}", headers=headers) as resp:
+                async with http.get(
+                    f"{TRIPO_API}/task/{task_id}", headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=20),
+                ) as resp:
                     if resp.status != 200:
-                        logger.warning("Tripo poll returned %d, retrying…", resp.status)
+                        logger.warning("Tripo poll %d — retrying", resp.status)
                         continue
                     data = await resp.json()
             except Exception as exc:
@@ -87,29 +103,39 @@ async def generate_3d_model(
             if data.get("code", -1) != 0:
                 raise RuntimeError(f"Tripo status error: {data.get('message', data)}")
 
-            task     = data["data"]
-            status   = task.get("status", "")
-            progress = task.get("progress", 0)
-            logger.info("Tripo %s: %s %d%%", task_id, status, progress)
+            task         = data["data"]
+            tripo_status = task.get("status", "")
+            progress     = int(task.get("progress", 0))
+            logger.info("Tripo %s: %s %d%%", task_id, tripo_status, progress)
 
-            if status == "success":
+            if progress != last_pct:
+                last_pct = progress
+                if on_progress:
+                    on_progress(progress, tripo_status)
+
+            if tripo_status == "success":
                 output       = task.get("output", {})
                 model_url    = output.get("model")
                 rendered_url = output.get("rendered_image")
+                if on_progress:
+                    on_progress(100, "success")
                 break
-            if status in ("failed", "cancelled", "banned", "expired"):
-                raise RuntimeError(f"Tripo generation {status}")
+            if tripo_status in ("failed", "cancelled", "banned", "expired"):
+                raise RuntimeError(f"Tripo generation {tripo_status}")
 
         if model_url is None:
-            raise RuntimeError(f"Tripo generation timed out after {POLL_TIMEOUT}s")
+            raise RuntimeError(
+                f"Tripo generation timed out after {POLL_TIMEOUT}s — "
+                "the model may still be queued; try again shortly"
+            )
 
-        # ── 3. Download GLB ───────────────────────────────────────────────────
+        # ── Download GLB ──────────────────────────────────────────────────────
         logger.info("Downloading GLB…")
         async with http.get(model_url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
             resp.raise_for_status()
             glb_bytes = await resp.read()
 
-        # ── 4. Download rendered preview (best-effort) ────────────────────────
+        # ── Download rendered preview (best-effort) ───────────────────────────
         rendered_data_url = None
         if rendered_url:
             try:
@@ -117,17 +143,19 @@ async def generate_3d_model(
                     if resp.status == 200:
                         import base64
                         rendered_bytes    = await resp.read()
-                        rendered_data_url = f"data:image/png;base64,{base64.b64encode(rendered_bytes).decode()}"
+                        rendered_data_url = (
+                            f"data:image/png;base64,{base64.b64encode(rendered_bytes).decode()}"
+                        )
                         (session_dir / "rendered.png").write_bytes(rendered_bytes)
             except Exception as exc:
                 logger.warning("Could not download rendered preview: %s", exc)
 
-    # ── 5. Save GLB ───────────────────────────────────────────────────────────
+    # ── Save GLB ──────────────────────────────────────────────────────────────
     glb_path = session_dir / "model.glb"
     glb_path.write_bytes(glb_bytes)
     logger.info("Saved GLB %d bytes → %s", len(glb_bytes), glb_path)
 
-    # ── 6. Convert GLB → STL ─────────────────────────────────────────────────
+    # ── Convert GLB → STL ─────────────────────────────────────────────────────
     stl_path = session_dir / "model.stl"
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(None, _sync_convert, glb_path, stl_path)
@@ -140,7 +168,7 @@ async def generate_3d_model(
 
 def _sync_convert(glb_path: Path, stl_path: Path) -> None:
     """Load a GLB file and export its geometry as binary STL."""
-    import trimesh  # imported here so the rest of the app works without it
+    import trimesh
 
     loaded = trimesh.load(str(glb_path), force="mesh")
 
