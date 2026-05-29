@@ -23,6 +23,15 @@ TRIPO_API     = "https://api.tripo3d.ai/v2/openapi"
 POLL_INTERVAL = 5      # seconds between status polls
 POLL_TIMEOUT  = 1200   # max seconds to wait (20 minutes — includes Tripo queue time)
 
+# Only one GLB→STL conversion runs at a time.
+# trimesh loads the full mesh into RAM; two concurrent conversions on Render's
+# free tier (512 MB) can OOM the process.
+_convert_sem = asyncio.Semaphore(1)
+
+# Hard cap on mesh faces after conversion to limit STL file size and RAM.
+# 100 k faces ≈ 5 MB binary STL — more than enough for CNC / printing.
+_MAX_FACES = 100_000
+
 
 async def create_tripo_task(api_key: str, prompt: str) -> str:
     """Submit a text-to-model job and return the Tripo task_id immediately."""
@@ -57,7 +66,7 @@ async def finish_tripo_task(
     task_id: str,
     session_dir: Path,
     on_progress: Callable[[int, str], None] | None = None,
-) -> tuple[Path, Path, str | None]:
+) -> tuple[Path, Path, str | None, str | None]:
     """
     Poll a Tripo task until it finishes, download the GLB, convert to STL.
 
@@ -156,19 +165,21 @@ async def finish_tripo_task(
     glb_path.write_bytes(glb_bytes)
     logger.info("Saved GLB %d bytes → %s", len(glb_bytes), glb_path)
 
-    # ── Convert GLB → STL ─────────────────────────────────────────────────────
+    # ── Convert GLB → STL (one at a time to avoid OOM) ───────────────────────
     stl_path = session_dir / "model.stl"
     loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, _sync_convert, glb_path, stl_path)
+    async with _convert_sem:
+        logger.info("Starting GLB→STL conversion (semaphore acquired)…")
+        await loop.run_in_executor(None, _sync_convert, glb_path, stl_path)
     logger.info("STL written %d bytes → %s", stl_path.stat().st_size, stl_path)
 
-    return glb_path, stl_path, rendered_data_url
+    return glb_path, stl_path, rendered_data_url, model_url
 
 
 # ── GLB → STL (synchronous, runs in thread pool) ─────────────────────────────
 
 def _sync_convert(glb_path: Path, stl_path: Path) -> None:
-    """Load a GLB file and export its geometry as binary STL."""
+    """Load a GLB file, decimate if needed, and export as binary STL."""
     import trimesh
 
     loaded = trimesh.load(str(glb_path), force="mesh")
@@ -185,5 +196,13 @@ def _sync_convert(glb_path: Path, stl_path: Path) -> None:
 
     if not len(combined.faces):
         raise RuntimeError("Mesh has no faces after loading")
+
+    # Decimate to _MAX_FACES to cap RAM usage and output STL size.
+    # 100 k faces ≈ 5 MB — plenty of detail for CNC / printing.
+    if len(combined.faces) > _MAX_FACES:
+        logger.info("Decimating %d → %d faces…", len(combined.faces), _MAX_FACES)
+        combined = combined.simplify_quadric_decimation(_MAX_FACES)
+        if not len(combined.faces):
+            raise RuntimeError("Mesh is empty after decimation")
 
     combined.export(str(stl_path))

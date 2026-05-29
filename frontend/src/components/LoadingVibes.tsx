@@ -411,13 +411,130 @@ export function HeightmapGenLoading({ prompt }: { prompt: string }) {
   )
 }
 
+// ── Full 3D model generation loading (shown in Model3dPromptStep) ─────────────
+
+const MESH_FACTS = [
+  'Tripo3D generates roughly 50,000–200,000 triangles per model — more than most hand-sculpted assets.',
+  'A GLB file bundles geometry, textures, and materials in one compact binary package.',
+  'PBR (Physically Based Rendering) materials simulate how light interacts with surfaces in the real world.',
+  '4-axis CNC lets you carve all the way around an object — perfect for full 3D models.',
+  'Splitting a 3D model at the widest point and carving two halves is the classic 3-axis workaround.',
+  'Relief carving removes material from a flat surface; 3D carving removes it from all directions.',
+  'Modern AI generates a complete UV-mapped mesh in under 90 seconds — a task that once took artists days.',
+  'GLB files open directly in Blender, Fusion 360, and most slicer software for 3D printers.',
+]
+
+const M3D_STAGES = [
+  { label: 'Submitting prompt',        body: 'Sending your description to the Tripo3D generation pipeline…'            },
+  { label: 'Analysing your idea',      body: 'AI is interpreting the description and planning the 3D structure…'       },
+  { label: 'Building 3D geometry',     body: 'Constructing the base mesh — vertices, edges, faces, topology…'          },
+  { label: 'Generating textures',      body: 'Painting colour, normal maps, and PBR material detail onto the mesh…'   },
+  { label: 'Finalising & converting',  body: 'Cleaning the mesh, preparing GLB, and converting to CNC-ready STL…'     },
+]
+const M3D_STAGE_AFTERS = [4000, 14000, 34000, 60000]
+
+const M3D_PROGRESS: [number, number][] = [
+  [500, 3], [4000, 10], [14000, 28], [34000, 52], [55000, 72], [70000, 84], [85000, 92],
+]
+
+export function Model3dGenerating({ prompt }: { prompt: string }) {
+  const stageIdx = useStages(M3D_STAGE_AFTERS)
+  const progress = useProgress(M3D_PROGRESS)
+  const fact     = useRotating([...MESH_FACTS, ...CARVING_FACTS], 7000)
+
+  const stage = M3D_STAGES[Math.min(stageIdx, M3D_STAGES.length - 1)]
+  const typed = useTypewriter(stage.body, 20)
+
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      gap: 28, padding: '40px 24px', width: '100%', maxWidth: 520,
+    }}>
+
+      {/* Stage badge + typewriter */}
+      <div style={{ textAlign: 'center' }}>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          padding: '4px 12px',
+          background: 'rgba(99,102,241,.14)',
+          border: '1px solid rgba(99,102,241,.3)',
+          borderRadius: 20,
+          fontSize: 11, fontWeight: 600, color: '#a5b4fc',
+          letterSpacing: '.06em', textTransform: 'uppercase',
+          marginBottom: 16,
+        }}>
+          <PulsingDot color="#818cf8" /> {stage.label}
+        </div>
+
+        <div style={{ fontSize: 16, color: 'var(--text-dim)', lineHeight: 1.7, minHeight: '3.4em' }}>
+          {typed}<span style={{ opacity: 0.4 }}>▌</span>
+        </div>
+      </div>
+
+      {/* Stage checklist */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 320 }}>
+        {M3D_STAGES.map((s, i) => {
+          const done   = i < stageIdx
+          const active = i === stageIdx
+          return (
+            <div key={s.label} style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              opacity: i > stageIdx ? 0.3 : 1,
+              transition: 'opacity .4s',
+            }}>
+              <div style={{
+                width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
+                border: `2px solid ${done || active ? '#818cf8' : 'rgba(255,255,255,.2)'}`,
+                background: done ? '#818cf8' : 'transparent',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                animation: active ? 'spin 1.2s linear infinite' : 'none',
+              }}>
+                {done && <span style={{ fontSize: 8, color: '#fff', fontWeight: 800 }}>✓</span>}
+              </div>
+              <span style={{
+                fontSize: 12,
+                color: done ? '#a5b4fc' : active ? 'var(--text)' : 'var(--muted)',
+                fontWeight: active ? 600 : 400,
+              }}>
+                {s.label}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Progress bar — indigo tint */}
+      <div style={{ width: '100%', maxWidth: 440, height: 3, background: 'rgba(255,255,255,.06)', borderRadius: 2, overflow: 'hidden' }}>
+        <div style={{
+          height: '100%', width: `${progress}%`,
+          background: 'linear-gradient(90deg, #6366f1, #818cf8)',
+          borderRadius: 2,
+          transition: 'width 1.6s cubic-bezier(.4,0,.2,1)',
+        }} />
+      </div>
+
+      {/* Prompt as context */}
+      <div style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>
+        "{prompt}"
+      </div>
+
+      {/* Fact card */}
+      <FactCard fact={fact} />
+
+      <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+        usually 45–90 s
+      </div>
+    </div>
+  )
+}
+
 // ── Small helpers ─────────────────────────────────────────────────────────────
 
-function PulsingDot() {
+function PulsingDot({ color = 'var(--accent)' }: { color?: string }) {
   return (
     <span style={{
       display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
-      background: 'var(--accent)',
+      background: color,
       animation: 'pulse-dot 1.4s ease-in-out infinite',
     }} />
   )

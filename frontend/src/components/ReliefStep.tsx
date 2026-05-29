@@ -33,18 +33,20 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
   const debounceRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const goToPresetRef = useRef<((p: CameraPreset) => void) | null>(null)
 
-  const triggerUpdate = useCallback((sz: number, de: number, rb: number, da: number) => {
+  const triggerUpdate = useCallback((_sz: number, de: number, rb: number, da: number) => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(async () => {
       setUpdating(true)
       try {
         const newUrl = await onUpdateStl({
-          scale_z:        sz / 100,
+          scale_z:        1.0,          // geometry always full-height; mesh.scale.z handles visual scaling
           detail_enhance: de / 100,
           replace_below:  rb / 100,
           draft_angle:    da,           // sent as degrees
         })
         setCurrentStlUrl(newUrl + `?t=${Date.now()}`)
+      } catch (err) {
+        console.error('STL update failed:', err)
       } finally {
         setUpdating(false)
       }

@@ -14,6 +14,13 @@ export const UPLOAD_LABELS: Record<Step, string> = {
   4: 'Relief',
 }
 
+export const MODEL3D_LABELS: Record<Step, string> = {
+  1: 'Describe',
+  2: 'Generate',
+  3: 'Convert',
+  4: 'Preview',
+}
+
 interface Props {
   current: Step
   labels?: Record<Step, string>
