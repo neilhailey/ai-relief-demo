@@ -115,7 +115,8 @@ async def finish_tripo_task(
 
             if tripo_status == "success":
                 output       = task.get("output", {})
-                model_url    = output.get("model")
+                # API returns "pbr_model" when pbr=True, fall back to "model"
+                model_url    = output.get("pbr_model") or output.get("model")
                 rendered_url = output.get("rendered_image")
                 if on_progress:
                     on_progress(100, "success")
