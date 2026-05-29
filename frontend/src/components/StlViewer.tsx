@@ -11,9 +11,10 @@ interface Props {
   onReady?: (goToPreset: (preset: CameraPreset) => void) => void
   onLoadStart?: () => void // called when a new URL begins loading
   onLoadEnd?: () => void   // called when geometry is fully loaded
+  onLoadError?: (err: string) => void  // called when the STL fails to load
 }
 
-export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd }: Props) {
+export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, onLoadError }: Props) {
   const mountRef     = useRef<HTMLDivElement>(null)
   const rendererRef  = useRef<THREE.WebGLRenderer | null>(null)
   const sceneRef     = useRef<THREE.Scene | null>(null)
@@ -28,10 +29,12 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd }: 
   const onReadyRef      = useRef(onReady)
   const onLoadStartRef  = useRef(onLoadStart)
   const onLoadEndRef    = useRef(onLoadEnd)
+  const onLoadErrorRef  = useRef(onLoadError)
   const scaleZRef       = useRef(scaleZ)
   useEffect(() => { onReadyRef.current     = onReady     }, [onReady])
   useEffect(() => { onLoadStartRef.current = onLoadStart }, [onLoadStart])
   useEffect(() => { onLoadEndRef.current   = onLoadEnd   }, [onLoadEnd])
+  useEffect(() => { onLoadErrorRef.current = onLoadError }, [onLoadError])
   useEffect(() => { scaleZRef.current      = scaleZ      }, [scaleZ])
 
   // ── Instant scale update: no geometry reload required ─────────────────────
@@ -206,7 +209,13 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd }: 
 
       onReadyRef.current?.(goToPreset)
       onLoadEndRef.current?.()
-    })
+    },
+    undefined,   // onProgress — not used
+    (err) => {   // onError
+      const msg = err instanceof Error ? err.message : String(err)
+      onLoadErrorRef.current?.(msg || 'Failed to load STL')
+    },
+    )
   }, [url])
 
   return <div ref={mountRef} style={{ width: '100%', height: '100%' }} />
