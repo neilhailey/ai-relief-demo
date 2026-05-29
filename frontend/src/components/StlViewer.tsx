@@ -3,56 +3,46 @@ import * as THREE from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 
-// All models are normalised to this size (longest dimension) so that camera,
-// clip planes, fog and zoom limits are always stable fixed values.
-const NORM_SIZE = 100
-
 export type CameraPreset = 'iso' | 'top' | 'front' | 'right'
 
 interface Props {
   url: string
-  scaleZ?: number          // applied instantly as mesh.scale.z — no STL reload needed
+  scaleZ?: number          // live depth multiplier — applied without reloading STL
   onReady?: (goToPreset: (preset: CameraPreset) => void) => void
-  onLoadStart?: () => void // called when a new URL begins loading
-  onLoadEnd?: () => void   // called when geometry is fully loaded
-  onLoadError?: (err: string) => void  // called when the STL fails to load
+  onLoadStart?: () => void
+  onLoadEnd?: () => void
+  onLoadError?: (err: string) => void
 }
 
 export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, onLoadError }: Props) {
-  const mountRef        = useRef<HTMLDivElement>(null)
-  const rendererRef     = useRef<THREE.WebGLRenderer | null>(null)
-  const sceneRef        = useRef<THREE.Scene | null>(null)
-  const cameraRef       = useRef<THREE.PerspectiveCamera | null>(null)
-  const controlRef      = useRef<OrbitControls | null>(null)
-  const meshRef         = useRef<THREE.Mesh | null>(null)
-  const planeRef        = useRef<THREE.Mesh | null>(null)
-  const sizeRef         = useRef(new THREE.Vector3())
-  const firstLoadRef    = useRef(true)
-  // Persists the per-model normalisation factor so the instant-scaleZ update
-  // can multiply by it: scale.z = normalizeScale * scaleZ
-  const normScaleRef    = useRef(1)
+  const mountRef     = useRef<HTMLDivElement>(null)
+  const rendererRef  = useRef<THREE.WebGLRenderer | null>(null)
+  const sceneRef     = useRef<THREE.Scene | null>(null)
+  const cameraRef    = useRef<THREE.PerspectiveCamera | null>(null)
+  const controlRef   = useRef<OrbitControls | null>(null)
+  const meshRef      = useRef<THREE.Mesh | null>(null)
+  const planeRef     = useRef<THREE.Mesh | null>(null)
+  const sizeRef      = useRef(new THREE.Vector3())
+  const firstLoadRef = useRef(true)
 
-  // Stable refs for callbacks / scaleZ so closures always read the latest value
-  const onReadyRef      = useRef(onReady)
-  const onLoadStartRef  = useRef(onLoadStart)
-  const onLoadEndRef    = useRef(onLoadEnd)
-  const onLoadErrorRef  = useRef(onLoadError)
-  const scaleZRef       = useRef(scaleZ)
+  // Stable refs so closures always read the latest callback / scaleZ
+  const onReadyRef     = useRef(onReady)
+  const onLoadStartRef = useRef(onLoadStart)
+  const onLoadEndRef   = useRef(onLoadEnd)
+  const onLoadErrorRef = useRef(onLoadError)
+  const scaleZRef      = useRef(scaleZ)
   useEffect(() => { onReadyRef.current     = onReady     }, [onReady])
   useEffect(() => { onLoadStartRef.current = onLoadStart }, [onLoadStart])
   useEffect(() => { onLoadEndRef.current   = onLoadEnd   }, [onLoadEnd])
   useEffect(() => { onLoadErrorRef.current = onLoadError }, [onLoadError])
   useEffect(() => { scaleZRef.current      = scaleZ      }, [scaleZ])
 
-  // ── Instant scaleZ update (no geometry reload) ────────────────────────────
+  // ── Live scaleZ update — no geometry reload needed ────────────────────────
   useEffect(() => {
-    if (meshRef.current) {
-      // Multiply by normalisation factor so depth stays correct
-      meshRef.current.scale.z = normScaleRef.current * scaleZ
-    }
+    if (meshRef.current) meshRef.current.scale.z = scaleZ
   }, [scaleZ])
 
-  // ── Scene init: runs ONCE on mount ────────────────────────────────────────
+  // ── Scene init (once on mount) ────────────────────────────────────────────
   useEffect(() => {
     const mount = mountRef.current
     if (!mount) return
@@ -70,36 +60,25 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
 
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x0d1117)
-    // Fog distances tuned for NORM_SIZE = 100
-    scene.fog = new THREE.Fog(0x0d1117, NORM_SIZE * 8, NORM_SIZE * 18)
     sceneRef.current = scene
 
-    // near/far tuned for NORM_SIZE = 100; models far smaller or larger are
-    // scaled to 100 units so these values are always appropriate
-    const camera = new THREE.PerspectiveCamera(42, W / H, 0.5, NORM_SIZE * 60)
+    // near/far are updated per-model after geometry loads
+    const camera = new THREE.PerspectiveCamera(42, W / H, 0.1, 10000)
     cameraRef.current = camera
 
-    // Light positions tuned for 100-unit world
-    scene.add(new THREE.AmbientLight(0xffffff, 0.35))
-    const key = new THREE.DirectionalLight(0xfff3e0, 1.5)
-    key.position.set(NORM_SIZE * 0.6, NORM_SIZE * 1.4, NORM_SIZE * 0.6)
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4))
+    const key = new THREE.DirectionalLight(0xfff3e0, 1.6)
     key.castShadow = true
     key.shadow.mapSize.set(1024, 1024)
     scene.add(key)
     const fill = new THREE.DirectionalLight(0x3b82f6, 0.3)
-    fill.position.set(-NORM_SIZE, NORM_SIZE * 0.6, NORM_SIZE * 0.4)
     scene.add(fill)
     const rim = new THREE.DirectionalLight(0xffffff, 0.15)
-    rim.position.set(0, -NORM_SIZE * 0.8, -NORM_SIZE * 0.6)
     scene.add(rim)
 
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping = true
     controls.dampingFactor = 0.06
-    controls.autoRotate    = false
-    // Zoom limits for 100-unit world — set once here, not overridden later
-    controls.minDistance   = NORM_SIZE * 0.05   // 5 units — very close
-    controls.maxDistance   = NORM_SIZE * 15     // 1500 units — far out
     controlRef.current = controls
 
     let raf: number
@@ -112,11 +91,9 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
 
     function onResize() {
       if (!mount) return
-      const w = mount.clientWidth
-      const h = mount.clientHeight
-      camera.aspect = w / h
+      camera.aspect = mount.clientWidth / mount.clientHeight
       camera.updateProjectionMatrix()
-      renderer.setSize(w, h)
+      renderer.setSize(mount.clientWidth, mount.clientHeight)
     }
     window.addEventListener('resize', onResize)
 
@@ -125,9 +102,8 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
       window.removeEventListener('resize', onResize)
       controls.dispose()
       renderer.dispose()
-      if (mount && renderer.domElement.parentNode === mount) {
+      if (mount && renderer.domElement.parentNode === mount)
         mount.removeChild(renderer.domElement)
-      }
       rendererRef.current  = null
       sceneRef.current     = null
       cameraRef.current    = null
@@ -136,110 +112,130 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
     }
   }, [])
 
-  // ── Geometry reload: runs when URL changes, KEEPS existing camera & mesh ──
+  // ── Geometry reload when URL changes ─────────────────────────────────────
   useEffect(() => {
     const scene    = sceneRef.current
     const camera   = cameraRef.current
     const controls = controlRef.current
     if (!scene || !camera || !controls) return
 
-    onLoadStartRef.current?.()
-
+    // Non-null aliases so nested functions don't see nullable types
     const cam  = camera
     const ctrl = controls
 
-    function goToPreset(preset: CameraPreset) {
-      // sizeRef already holds the *normalised* world-space size (~100 units)
-      const sz = sizeRef.current
-      const d  = Math.max(sz.x, sz.y, sz.z) * 1.4
-      switch (preset) {
-        case 'iso':   cam.position.set( d * 0.6,  d * 0.9,  d * 0.7); break
-        case 'top':   cam.position.set( 0,         d * 1.6,  0.001);   break
-        case 'front': cam.position.set( 0,         d * 0.2,  d * 1.3); break
-        case 'right': cam.position.set( d * 1.3,   d * 0.2,  0);       break
-      }
-      cam.lookAt(0, 0, 0)
-      ctrl.target.set(0, 0, 0)
-      ctrl.update()
-    }
+    onLoadStartRef.current?.()
 
     const loader = new STLLoader()
-    loader.load(url, (geometry) => {
-      geometry.computeVertexNormals()
-      geometry.computeBoundingBox()
+    loader.load(
+      url,
+      (geometry) => {
+        // 1. Centre the geometry
+        geometry.computeBoundingBox()
+        const bbox = geometry.boundingBox!
+        const center = new THREE.Vector3()
+        bbox.getCenter(center)
+        geometry.translate(-center.x, -center.y, -center.z)
 
-      const bbox   = geometry.boundingBox!
-      const center = new THREE.Vector3()
-      bbox.getCenter(center)
-      geometry.translate(-center.x, -center.y, -center.z)
+        // 2. Normalise vertex positions to a ~100-unit world
+        //    Done directly on the vertex buffer so mesh.scale stays at 1,
+        //    avoiding any scale×rotation interaction that produces wrong sizes.
+        const rawSize = new THREE.Vector3()
+        bbox.getSize(rawSize)
+        const maxRaw = Math.max(rawSize.x, rawSize.y, rawSize.z)
+        const TARGET = 100
+        const ns = maxRaw > 0 ? TARGET / maxRaw : 1   // normalise scale
+        geometry.scale(ns, ns, ns)
 
-      // Raw size in the STL's own coordinate units (could be anything)
-      const rawSize = new THREE.Vector3()
-      bbox.getSize(rawSize)
+        // 3. Recompute bbox after normalisation to get accurate world sizes
+        geometry.computeBoundingBox()
+        const normBbox = geometry.boundingBox!
+        const normSize = new THREE.Vector3()
+        normBbox.getSize(normSize)
+        sizeRef.current = normSize   // used by goToPreset (geometry space = ~100 units)
 
-      // ── Normalise to NORM_SIZE world-units ──────────────────────────────
-      // Tripo STLs are often in metre scale (0.1–0.5 units); relief STLs are
-      // in pixel scale (512–1024 units).  Scaling to a fixed world size means
-      // the camera, fog, clip planes and zoom limits all stay correct.
-      const maxRaw       = Math.max(rawSize.x, rawSize.y, rawSize.z)
-      const normScale    = maxRaw > 0 ? NORM_SIZE / maxRaw : 1
-      normScaleRef.current = normScale
+        // 4. Build mesh — scale is (1, 1, scaleZ) only; no normalisation factor needed
+        const material = new THREE.MeshPhongMaterial({
+          color: 0xc8922a, specular: 0x2a1a08, shininess: 18, side: THREE.DoubleSide,
+        })
+        const mesh = new THREE.Mesh(geometry, material)
+        mesh.castShadow    = true
+        mesh.receiveShadow = true
+        mesh.rotation.x    = -Math.PI / 2
+        mesh.scale.z       = scaleZRef.current
 
-      // World-space size after normalisation (used by goToPreset + plane)
-      const normSize = rawSize.clone().multiplyScalar(normScale)
-      sizeRef.current = normSize
+        // 5. Atomic swap
+        if (meshRef.current) {
+          scene.remove(meshRef.current)
+          meshRef.current.geometry.dispose()
+          ;(meshRef.current.material as THREE.Material).dispose()
+        }
+        if (planeRef.current) { scene.remove(planeRef.current); planeRef.current = null }
 
-      const material = new THREE.MeshPhongMaterial({
-        color:     0xc8922a,
-        specular:  0x2a1a08,
-        shininess: 18,
-        side:      THREE.DoubleSide,
-      })
+        scene.add(mesh)
+        meshRef.current = mesh
 
-      const mesh = new THREE.Mesh(geometry, material)
-      mesh.castShadow    = true
-      mesh.receiveShadow = true
-      mesh.rotation.x    = -Math.PI / 2
-      // Apply normalisation + current scaleZ together
-      mesh.scale.set(normScale, normScale, normScale * scaleZRef.current)
+        // 6. Shadow plane — position below the model in world space
+        //    After rotation.x = -PI/2, geometry-Z maps to world-Y.
+        //    The bottom of the model in world-Y = -normSize.z / 2.
+        const groundY = -normSize.z / 2 - 2
+        const plane = new THREE.Mesh(
+          new THREE.PlaneGeometry(TARGET * 8, TARGET * 8),
+          new THREE.ShadowMaterial({ opacity: 0.2 }),
+        )
+        plane.rotation.x    = -Math.PI / 2
+        plane.position.y    = groundY
+        plane.receiveShadow = true
+        scene.add(plane)
+        planeRef.current = plane
 
-      // ── Atomic swap: remove old, add new ──────────────────────────────────
-      if (meshRef.current) {
-        scene.remove(meshRef.current)
-        meshRef.current.geometry.dispose()
-        ;(meshRef.current.material as THREE.Material).dispose()
-      }
-      if (planeRef.current) {
-        scene.remove(planeRef.current)
-        planeRef.current = null
-      }
+        // 7. Camera, fog, lights — all scaled to the normalised ~100-unit world
+        const maxDim = TARGET   // always ~100 after normalisation
 
-      scene.add(mesh)
-      meshRef.current = mesh
+        cam.near = maxDim * 0.002   //  0.2 — can get very close
+        cam.far  = maxDim * 200     // 20000 — can zoom far out
+        cam.updateProjectionMatrix()
 
-      const plane = new THREE.Mesh(
-        new THREE.PlaneGeometry(NORM_SIZE * 8, NORM_SIZE * 8),
-        new THREE.ShadowMaterial({ opacity: 0.25 }),
-      )
-      plane.rotation.x    = -Math.PI / 2
-      plane.position.y    = -normSize.z / 2 - 1
-      plane.receiveShadow = true
-      scene.add(plane)
-      planeRef.current = plane
+        scene.fog = new THREE.Fog(0x0d1117, maxDim * 12, maxDim * 25)
 
-      if (firstLoadRef.current) {
-        firstLoadRef.current = false
-        goToPreset('iso')
-      }
+        const d = maxDim * 1.6   // 160 — light/camera reference distance
+        const key  = scene.children.find(c => c instanceof THREE.DirectionalLight && (c as THREE.DirectionalLight).castShadow) as THREE.DirectionalLight
+        const fill = scene.children.filter(c => c instanceof THREE.DirectionalLight && !(c as THREE.DirectionalLight).castShadow)[0] as THREE.DirectionalLight
+        const rim  = scene.children.filter(c => c instanceof THREE.DirectionalLight && !(c as THREE.DirectionalLight).castShadow)[1] as THREE.DirectionalLight
+        if (key)  key.position.set( d * 0.5,  d,      d * 0.4)
+        if (fill) fill.position.set(-d,        d * 0.5, d * 0.3)
+        if (rim)  rim.position.set(  0,       -d * 0.6,-d * 0.5)
 
-      onReadyRef.current?.(goToPreset)
-      onLoadEndRef.current?.()
-    },
-    undefined,   // onProgress — not used
-    (err) => {   // onError
-      const msg = err instanceof Error ? err.message : String(err)
-      onLoadErrorRef.current?.(msg || 'Failed to load STL')
-    },
+        ctrl.minDistance = maxDim * 0.05   //   5 — very close zoom
+        ctrl.maxDistance = maxDim * 20     // 2000 — very far zoom
+
+        // 8. Camera preset helper
+        function goToPreset(preset: CameraPreset) {
+          const sz = sizeRef.current
+          const dist = Math.max(sz.x, sz.y, sz.z) * 1.8   // ~180 units for 100-unit model
+          switch (preset) {
+            case 'iso':   cam.position.set( dist * 0.55, dist * 0.75, dist * 0.60); break
+            case 'top':   cam.position.set( 0,           dist * 1.4,  0.001);       break
+            case 'front': cam.position.set( 0,           dist * 0.15, dist * 1.1);  break
+            case 'right': cam.position.set( dist * 1.1,  dist * 0.15, 0);           break
+          }
+          cam.lookAt(0, 0, 0)
+          ctrl.target.set(0, 0, 0)
+          ctrl.update()
+        }
+
+        if (firstLoadRef.current) {
+          firstLoadRef.current = false
+          goToPreset('iso')
+        }
+
+        onReadyRef.current?.(goToPreset)
+        onLoadEndRef.current?.()
+      },
+      undefined,
+      (err) => {
+        const msg = err instanceof Error ? err.message : String(err)
+        onLoadErrorRef.current?.(msg || 'Failed to load STL')
+      },
     )
   }, [url])
 
