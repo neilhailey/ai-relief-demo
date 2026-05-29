@@ -9,6 +9,7 @@ import { EnhanceStep } from './components/EnhanceStep'
 import { PreviewStep } from './components/PreviewStep'
 import { ReliefStep, SliderParams } from './components/ReliefStep'
 import { Model3dPromptStep } from './components/Model3dPromptStep'
+import { Model3dGeneratingStep } from './components/Model3dGeneratingStep'
 import { Model3dResultStep } from './components/Model3dResultStep'
 import { RecentPanel } from './components/RecentPanel'
 import { FlappyBird } from './components/FlappyBird'
@@ -303,17 +304,29 @@ export default function App() {
         )}
       </header>
 
-      {/* Step indicator */}
-      <div style={{ flexShrink: 0, maxWidth: 900, width: '100%', margin: '0 auto' }}>
-        <StepIndicator
-          current={step}
-          labels={
-            flowMode === 'upload'  ? UPLOAD_LABELS  :
-            flowMode === 'model3d' ? MODEL3D_LABELS :
-            undefined
-          }
-        />
-      </div>
+      {/* Step indicator — advance visually through 3D model steps during background job */}
+      {(() => {
+        let displayStep = step
+        if (flowMode === 'model3d' && bgJob) {
+          displayStep =
+            bgJob.status === 'done'                 ? 4 :
+            bgJob.tripoStatus === 'success'         ? 3 :
+            bgJob.status === 'running'              ? 2 :
+            step
+        }
+        return (
+          <div style={{ flexShrink: 0, maxWidth: 900, width: '100%', margin: '0 auto' }}>
+            <StepIndicator
+              current={displayStep as Step}
+              labels={
+                flowMode === 'upload'  ? UPLOAD_LABELS  :
+                flowMode === 'model3d' ? MODEL3D_LABELS :
+                undefined
+              }
+            />
+          </div>
+        )
+      })()}
 
       {/* Error banner */}
       {error && (
@@ -445,8 +458,20 @@ export default function App() {
         {step === 1 && flowMode === 'upload' && (
           <UploadStep onUpload={handleUpload} onSwitchToAI={() => setFlowMode('ai')} />
         )}
-        {step === 1 && flowMode === 'model3d' && (
+        {step === 1 && flowMode === 'model3d' && !bgJob && (
           <Model3dPromptStep onGenerate={handleGenerate3d} loading={loading} onSwitchToAI={() => setFlowMode('ai')} />
+        )}
+        {step === 1 && flowMode === 'model3d' && bgJob && (
+          <Model3dGeneratingStep
+            prompt={bgJob.prompt}
+            status={bgJob.status}
+            tripoStatus={bgJob.tripoStatus}
+            progress={bgJob.progress}
+            error={bgJob.error}
+            onView={viewBgJobResult}
+            onPlayGame={() => setShowGame(true)}
+            onCancel={() => { setBgJob(null); setShowGame(false) }}
+          />
         )}
 
         {/* ── Step 2 ── */}
@@ -525,8 +550,10 @@ export default function App() {
         </footer>
       )}
 
-      {/* ── Background 3D job floating indicator ── */}
-      {bgJob && (
+      {/* ── Background 3D job floating indicator ──
+           Hidden when the dedicated generating view is already shown
+           (step 1 + model3d flow) to avoid showing the same info twice. */}
+      {bgJob && !(step === 1 && flowMode === 'model3d') && (
         <div style={{
           position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
           display: 'flex', flexDirection: 'column', gap: 8,
