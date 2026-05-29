@@ -1,25 +1,20 @@
 /// <reference types="vite/client" />
 import { useState } from 'react'
-import { StepIndicator, UPLOAD_LABELS } from './components/StepIndicator'
+import type { SessionState, Creation, BackgroundJob } from './types'
+import { StepIndicator, UPLOAD_LABELS, MODEL3D_LABELS } from './components/StepIndicator'
 import { PromptStep } from './components/PromptStep'
 import { UploadStep } from './components/UploadStep'
 import { SelectStep, ImageOption } from './components/SelectStep'
 import { EnhanceStep } from './components/EnhanceStep'
 import { PreviewStep } from './components/PreviewStep'
 import { ReliefStep, SliderParams } from './components/ReliefStep'
+import { Model3dPromptStep } from './components/Model3dPromptStep'
+import { Model3dResultStep } from './components/Model3dResultStep'
+import { RecentPanel } from './components/RecentPanel'
+import { FlappyBird } from './components/FlappyBird'
 
 type Step     = 1 | 2 | 3 | 4
-type FlowMode = 'ai' | 'upload'
-
-interface SessionState {
-  sessionId:      string
-  prompt:         string         // shown in UI
-  enhancedPrompt: string         // used for API calls (heightmap generation)
-  images:         ImageOption[]
-  selectedIndex:  number | null
-  heightmapUrl:   string | null
-  stlUrl:         string | null
-}
+type FlowMode = 'ai' | 'upload' | 'model3d'
 
 const API = import.meta.env.VITE_API_URL ?? ''
 
@@ -37,11 +32,31 @@ async function apiFetch<T>(path: string, body: unknown): Promise<T> {
 }
 
 export default function App() {
-  const [step,     setStep]     = useState<Step>(1)
-  const [flowMode, setFlowMode] = useState<FlowMode>('ai')
-  const [loading,  setLoading]  = useState(false)
-  const [error,    setError]    = useState<string | null>(null)
-  const [session,  setSession]  = useState<SessionState | null>(null)
+  const [step,      setStep]      = useState<Step>(1)
+  const [flowMode,  setFlowMode]  = useState<FlowMode>('ai')
+  const [loading,   setLoading]   = useState(false)
+  const [error,     setError]     = useState<string | null>(null)
+  const [session,   setSession]   = useState<SessionState | null>(null)
+
+  // ── Background 3D job + recent creations ─────────────────────────────────
+  const [bgJob,     setBgJob]     = useState<BackgroundJob | null>(null)
+  const [creations, setCreations] = useState<Creation[]>([])
+  const [showPanel, setShowPanel] = useState(false)
+  const [showGame,  setShowGame]  = useState(false)
+
+  function addCreation(c: Omit<Creation, 'id'>) {
+    const entry: Creation = { ...c, id: Math.random().toString(36).slice(2, 8) }
+    setCreations(prev => [entry, ...prev].slice(0, 5))
+  }
+
+  function handleSelectCreation(id: string) {
+    const c = creations.find(x => x.id === id)
+    if (!c) return
+    setSession(c.session)
+    setFlowMode(c.flowMode)
+    setStep(4)
+    setShowPanel(false)
+  }
 
   // ── AI flow: Step 1 → 2 ─────────────────────────────────────────────────
   async function handleGenerate(prompt: string) {
@@ -58,7 +73,8 @@ export default function App() {
         prompt:         data.original_prompt,
         enhancedPrompt: data.enhanced_prompt,
         images:         data.images,
-        selectedIndex: null, heightmapUrl: null, stlUrl: null,
+        selectedIndex:  null, heightmapUrl: null, stlUrl: null,
+        glbUrl:         null, renderedUrl:  null,
       })
       setStep(2)
     } catch (e) {
@@ -74,18 +90,96 @@ export default function App() {
       enhancedPrompt: subject,
       images:         [{ index: 0, url: imageUrl }],
       selectedIndex:  0,
-      heightmapUrl:   null,
-      stlUrl:         null,
+      heightmapUrl:   null, stlUrl:      null,
+      glbUrl:         null, renderedUrl: null,
     })
     setStep(2)
   }
 
+  // ── 3D model flow: submit job + poll in background ───────────────────────
+  async function handleGenerate3d(prompt: string) {
+    setLoading(true); setError(null)
+    try {
+      const { job_id } = await apiFetch<{ job_id: string }>('/api/generate-3d', { prompt })
+      setBgJob({ jobId: job_id, prompt, status: 'running', tripoStatus: 'queued', progress: 0, result: null, error: null })
+      // kick off background polling — does NOT block navigation
+      void pollJobBackground(job_id, prompt)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong')
+    } finally {
+      setLoading(false)   // releases navigation immediately after job is queued
+    }
+  }
+
+  async function pollJobBackground(jobId: string, prompt: string) {
+    while (true) {
+      await new Promise<void>(r => setTimeout(r, 4000))
+      try {
+        const res = await fetch(`${API}/api/generate-3d/status/${jobId}`)
+        if (!res.ok) continue
+        const job = await res.json() as {
+          status:       string
+          tripo_status: string
+          progress:     number
+          session_id:   string | null
+          glb_url:      string | null
+          stl_url:      string | null
+          rendered_url: string | null
+          error:        string | null
+        }
+
+        // update progress + Tripo phase for the floating indicator
+        setBgJob(j => j?.jobId === jobId
+          ? { ...j, progress: job.progress ?? 0, tripoStatus: job.tripo_status ?? 'queued' }
+          : j
+        )
+
+        if (job.status === 'success' && job.session_id && job.stl_url && job.glb_url) {
+          const newSession: SessionState = {
+            sessionId:      job.session_id,
+            prompt,
+            enhancedPrompt: prompt,
+            images:         [],
+            selectedIndex:  null,
+            heightmapUrl:   null,
+            stlUrl:         `${API}${job.stl_url}`,
+            glbUrl:         `${API}${job.glb_url}`,
+            renderedUrl:    job.rendered_url ?? null,
+          }
+          setBgJob(j => j?.jobId === jobId
+            ? { ...j, status: 'done', progress: 100, result: newSession }
+            : j
+          )
+          addCreation({
+            type: 'model3d', prompt, flowMode: 'model3d',
+            thumbnail: job.rendered_url ?? null,
+            session: newSession,
+          })
+          break
+        }
+        if (job.status === 'failed') {
+          setBgJob(j => j?.jobId === jobId
+            ? { ...j, status: 'failed', error: job.error ?? '3D generation failed' }
+            : j
+          )
+          break
+        }
+      } catch { /* network hiccup — keep polling */ }
+    }
+  }
+
+  function viewBgJobResult() {
+    if (!bgJob?.result) return
+    setSession(bgJob.result)
+    setFlowMode('model3d')
+    setStep(4)
+    setBgJob(null)
+  }
+
   // ── Upload flow: Step 2 → 3 ──────────────────────────────────────────────
-  // imageIndex 0 = original uploaded, 1 = AI-enhanced
   function handleEnhanceComplete(imageUrl: string, subject: string, imageIndex: number) {
     setSession(s => {
       if (!s) return s
-      // Ensure the chosen image is in the images array
       const images = imageIndex === 1
         ? [...s.images.filter(i => i.index !== 1), { index: 1, url: imageUrl }]
         : s.images
@@ -100,7 +194,7 @@ export default function App() {
     setStep(3)
   }
 
-  // ── Step 3 → 4: create 3D model ─────────────────────────────────────────
+  // ── Step 3 → 4: generate heightmap + STL ────────────────────────────────
   async function handleCreateModel(removeBg: boolean) {
     if (!session || session.selectedIndex === null) return
     setLoading(true); setError(null)
@@ -116,11 +210,21 @@ export default function App() {
           draft_angle:    10.0,
         },
       )
-      setSession(s => s ? {
-        ...s,
+      const selectedImg = session.images.find(i => i.index === session.selectedIndex)
+      const updatedSession: SessionState = {
+        ...session,
         heightmapUrl: data.heightmap_url,
         stlUrl:       `${API}${data.stl_url}`,
-      } : s)
+      }
+      setSession(updatedSession)
+      addCreation({
+        type:      'relief',
+        prompt:    session.prompt,
+        flowMode,
+        thumbnail: data.heightmap_url,             // heightmap as the card thumbnail
+        session:   updatedSession,
+      })
+      void selectedImg   // suppress unused-var lint
       setStep(4)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong')
@@ -169,16 +273,45 @@ export default function App() {
             border: '1px solid rgba(59,130,246,.3)', fontWeight: 500,
           }}>AI Relief</span>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-          Text → Image → 3D Relief → G-code
-        </div>
+
+        {/* Recent creations button */}
+        {creations.length > 0 && (
+          <button
+            onClick={() => setShowPanel(p => !p)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 7,
+              padding: '6px 12px',
+              background: showPanel ? 'rgba(249,115,22,.15)' : 'var(--surface2)',
+              border: `1px solid ${showPanel ? 'var(--accent)' : 'var(--border)'}`,
+              borderRadius: 20, cursor: 'pointer',
+              transition: 'all .2s',
+            }}
+          >
+            <span style={{ fontSize: 13 }}>🕐</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: showPanel ? 'var(--accent)' : 'var(--text-dim)' }}>
+              Recent
+            </span>
+            <span style={{
+              width: 18, height: 18, borderRadius: '50%',
+              background: 'var(--accent)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 10, fontWeight: 700, color: '#fff',
+            }}>
+              {creations.length}
+            </span>
+          </button>
+        )}
       </header>
 
       {/* Step indicator */}
       <div style={{ flexShrink: 0, maxWidth: 900, width: '100%', margin: '0 auto' }}>
         <StepIndicator
           current={step}
-          labels={flowMode === 'upload' ? UPLOAD_LABELS : undefined}
+          labels={
+            flowMode === 'upload'  ? UPLOAD_LABELS  :
+            flowMode === 'model3d' ? MODEL3D_LABELS :
+            undefined
+          }
         />
       </div>
 
@@ -200,19 +333,120 @@ export default function App() {
       {/* Main content */}
       <main style={{ flex: 1, width: '100%', maxWidth: step === 4 ? '100%' : 960, margin: '0 auto' }}>
 
-        {/* ── Step 1 ── */}
+        {/* ── Flappy Bird (while 3D model runs OR while relief generates) ── */}
+        {(() => {
+          const reliefRunning = loading && step === 3 && flowMode !== 'model3d'
+          const gameActive    = showGame && (bgJob?.status === 'running' || reliefRunning)
+          if (gameActive) {
+            return (
+              <FlappyBird
+                jobProgress={reliefRunning ? -1 : (bgJob?.progress ?? 0)}
+                statusText={reliefRunning ? '◈  Generating 3D relief…' : undefined}
+                onClose={() => setShowGame(false)}
+              />
+            )
+          }
+          return (<>
+
+        {/* ── Step 1: flow-mode card picker ── */}
+        {step === 1 && (
+          <div style={{
+            display: 'flex', justifyContent: 'center', gap: 14,
+            padding: '24px 24px 0', flexWrap: 'wrap',
+          }}>
+            {([
+              {
+                mode:   'ai'      as const,
+                label:  'AI Relief',
+                desc:   'Describe anything — AI generates an image then carves it into a flat relief panel',
+                img:    '/tab-relief.jpg',
+                accent: 'var(--accent)',
+                glow:   'rgba(249,115,22,.18)',
+                border: 'rgba(249,115,22,.6)',
+              },
+              {
+                mode:   'upload'  as const,
+                label:  'Upload Image',
+                desc:   'Use your own photo or artwork — AI enhances it then converts to a carved relief',
+                img:    '/tab-upload.jpg',
+                accent: 'var(--accent)',
+                glow:   'rgba(249,115,22,.18)',
+                border: 'rgba(249,115,22,.6)',
+              },
+              {
+                mode:   'model3d' as const,
+                label:  'Full 3D Model',
+                desc:   'Describe any object — AI builds a complete 3D mesh for rotary CNC or printing',
+                img:    '/tab-model3d.jpg',
+                accent: '#a5b4fc',
+                glow:   'rgba(99,102,241,.18)',
+                border: 'rgba(99,102,241,.6)',
+              },
+            ]).map(({ mode, label, desc, img, accent, glow, border }) => {
+              const active = flowMode === mode
+              return (
+                <button
+                  key={mode}
+                  onClick={() => !loading && setFlowMode(mode)}
+                  onMouseEnter={e => {
+                    if (!active) (e.currentTarget as HTMLButtonElement).style.borderColor = border
+                  }}
+                  onMouseLeave={e => {
+                    if (!active) (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)'
+                  }}
+                  style={{
+                    width: 210, padding: 0, textAlign: 'left',
+                    background: active ? glow : 'var(--surface)',
+                    border: `2px solid ${active ? border : 'var(--border)'}`,
+                    borderRadius: 12, overflow: 'hidden',
+                    cursor: loading ? 'default' : 'pointer',
+                    transition: 'border-color .2s, background .2s',
+                    flexShrink: 0,
+                  }}
+                >
+                  <div style={{ position: 'relative', width: '100%', paddingTop: '70%' }}>
+                    <img
+                      src={img} alt={label}
+                      style={{
+                        position: 'absolute', inset: 0,
+                        width: '100%', height: '100%',
+                        objectFit: 'cover',
+                        opacity: active ? 1 : 0.65,
+                        transition: 'opacity .2s',
+                      }}
+                    />
+                    {active && (
+                      <div style={{
+                        position: 'absolute', top: 8, right: 8,
+                        width: 22, height: 22, borderRadius: '50%',
+                        background: accent,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, fontWeight: 800, color: '#fff',
+                        boxShadow: '0 2px 6px rgba(0,0,0,.5)',
+                      }}>✓</div>
+                    )}
+                  </div>
+                  <div style={{ padding: '10px 12px 12px' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: active ? accent : 'var(--text)', marginBottom: 4 }}>
+                      {label}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>{desc}</div>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {/* ── Step 1 forms ── */}
         {step === 1 && flowMode === 'ai' && (
-          <PromptStep
-            onGenerate={handleGenerate}
-            loading={loading}
-            onSwitchToUpload={() => setFlowMode('upload')}
-          />
+          <PromptStep onGenerate={handleGenerate} loading={loading} onSwitchToUpload={() => setFlowMode('upload')} />
         )}
         {step === 1 && flowMode === 'upload' && (
-          <UploadStep
-            onUpload={handleUpload}
-            onSwitchToAI={() => setFlowMode('ai')}
-          />
+          <UploadStep onUpload={handleUpload} onSwitchToAI={() => setFlowMode('ai')} />
+        )}
+        {step === 1 && flowMode === 'model3d' && (
+          <Model3dPromptStep onGenerate={handleGenerate3d} loading={loading} onSwitchToAI={() => setFlowMode('ai')} />
         )}
 
         {/* ── Step 2 ── */}
@@ -247,8 +481,8 @@ export default function App() {
           />
         )}
 
-        {/* ── Step 4 (shared) ── */}
-        {step === 4 && session && session.heightmapUrl && session.stlUrl && selectedImage && (
+        {/* ── Step 4: relief ── */}
+        {step === 4 && flowMode !== 'model3d' && session && session.heightmapUrl && session.stlUrl && selectedImage && (
           <ReliefStep
             prompt={session.prompt}
             heightmapUrl={session.heightmapUrl}
@@ -260,6 +494,20 @@ export default function App() {
           />
         )}
 
+        {/* ── Step 4: 3D model ── */}
+        {step === 4 && flowMode === 'model3d' && session && session.stlUrl && session.glbUrl && (
+          <Model3dResultStep
+            prompt={session.prompt}
+            stlUrl={session.stlUrl}
+            glbUrl={session.glbUrl}
+            renderedUrl={session.renderedUrl ?? undefined}
+            sessionId={session.sessionId}
+            onStartOver={handleStartOver}
+          />
+        )}
+
+          </>)
+        })()}
       </main>
 
       {step !== 4 && (
@@ -269,11 +517,170 @@ export default function App() {
           display: 'flex', justifyContent: 'center', gap: 20,
           flexShrink: 0,
         }}>
-          <span>AI flow: gpt-image-1 via OpenAI</span>
+          <span>Relief: gpt-image-1 via OpenAI</span>
           <span>·</span>
-          <span>Upload flow: your image → AI enhance → 3D relief</span>
+          <span>3D Model: Tripo3D v2.5</span>
+          <span>·</span>
+          <span>Upload: your image → AI enhance → relief</span>
         </footer>
       )}
+
+      {/* ── Background 3D job floating indicator ── */}
+      {bgJob && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          display: 'flex', flexDirection: 'column', gap: 8,
+          padding: '12px 16px',
+          background: 'rgba(15,18,24,.95)',
+          border: `1px solid ${bgJob.status === 'done' ? 'rgba(5,150,105,.5)' : bgJob.status === 'failed' ? 'rgba(239,68,68,.5)' : 'rgba(99,102,241,.4)'}`,
+          borderRadius: 12,
+          backdropFilter: 'blur(12px)',
+          boxShadow: '0 8px 32px rgba(0,0,0,.5)',
+          zIndex: 50,
+          minWidth: 300, maxWidth: 380,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 1, minWidth: 0 }}>
+              {bgJob.status === 'running' && (
+                <span style={{
+                  width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
+                  border: '2px solid rgba(99,102,241,.3)', borderTopColor: '#818cf8',
+                  animation: 'spin 0.8s linear infinite', display: 'inline-block',
+                }} />
+              )}
+              {bgJob.status === 'done'    && <span style={{ fontSize: 15, flexShrink: 0 }}>✓</span>}
+              {bgJob.status === 'failed'  && <span style={{ fontSize: 14, flexShrink: 0 }}>⚠</span>}
+
+              <div style={{ minWidth: 0 }}>
+                <div style={{
+                  fontSize: 12, fontWeight: 600,
+                  color: bgJob.status === 'done' ? 'var(--green)' : bgJob.status === 'failed' ? '#fca5a5' : '#a5b4fc',
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  {bgJob.status === 'running' && (
+                    bgJob.tripoStatus === 'queued'   ? 'Queued in Tripo…' :
+                    bgJob.tripoStatus === 'success'  ? 'Converting mesh…' :
+                    `Generating 3D model… ${bgJob.progress}%`
+                  )}
+                  {bgJob.status === 'done'    && '3D model ready!'}
+                  {bgJob.status === 'failed'  && '3D model failed'}
+                </div>
+                <div style={{
+                  fontSize: 10, color: 'var(--muted)', marginTop: 1,
+                  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                }}>
+                  "{bgJob.prompt}"
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              {bgJob.status === 'running' && (
+                <button
+                  onClick={() => setShowGame(s => !s)}
+                  title="Play while you wait"
+                  style={{
+                    padding: '5px 10px',
+                    background: showGame ? 'rgba(99,102,241,.5)' : 'rgba(99,102,241,.25)',
+                    border: '1px solid rgba(148,151,248,.7)',
+                    borderRadius: 8, cursor: 'pointer',
+                    fontSize: 12, fontWeight: 600,
+                    color: '#e0e7ff',
+                    display: 'flex', alignItems: 'center', gap: 5,
+                  }}
+                >
+                  <span style={{ fontSize: 14 }}>🎮</span>
+                  <span>Play</span>
+                </button>
+              )}
+              {bgJob.status === 'done' && (
+                <button
+                  onClick={viewBgJobResult}
+                  style={{
+                    padding: '5px 12px',
+                    background: 'rgba(5,150,105,.2)',
+                    border: '1px solid rgba(5,150,105,.4)',
+                    borderRadius: 8, cursor: 'pointer',
+                    fontSize: 11, fontWeight: 700, color: 'var(--green)',
+                  }}
+                >
+                  View →
+                </button>
+              )}
+              <button
+                onClick={() => setBgJob(null)}
+                style={{
+                  background: 'none', border: 'none',
+                  color: 'var(--muted)', fontSize: 16,
+                  cursor: 'pointer', lineHeight: 1, padding: '2px 4px',
+                }}
+              >✕</button>
+            </div>
+          </div>
+
+          {/* Progress bar — only while running */}
+          {bgJob.status === 'running' && (
+            <div style={{ height: 3, background: 'rgba(255,255,255,.06)', borderRadius: 2, overflow: 'hidden' }}>
+              <div style={{
+                height: '100%',
+                width: `${bgJob.progress}%`,
+                background: 'linear-gradient(90deg, #6366f1, #818cf8)',
+                borderRadius: 2,
+                transition: 'width 1.5s ease',
+              }} />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Relief-loading floating play button ── */}
+      {loading && step === 3 && flowMode !== 'model3d' && !showGame && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+          display: 'flex', alignItems: 'center', gap: 10,
+          padding: '10px 16px',
+          background: 'rgba(15,18,24,.95)',
+          border: '1px solid rgba(249,115,22,.4)',
+          borderRadius: 12,
+          backdropFilter: 'blur(12px)',
+          boxShadow: '0 8px 32px rgba(0,0,0,.5)',
+          zIndex: 50,
+        }}>
+          {/* Spinner */}
+          <span style={{
+            width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
+            border: '2px solid rgba(249,115,22,.25)', borderTopColor: '#f97316',
+            animation: 'spin 0.8s linear infinite', display: 'inline-block',
+          }} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: '#fdba74', whiteSpace: 'nowrap' }}>
+            Generating 3D relief…
+          </span>
+          <button
+            onClick={() => setShowGame(true)}
+            style={{
+              padding: '5px 12px',
+              background: 'rgba(249,115,22,.25)',
+              border: '1px solid rgba(251,146,60,.7)',
+              borderRadius: 8, cursor: 'pointer',
+              fontSize: 12, fontWeight: 600, color: '#fed7aa',
+              display: 'flex', alignItems: 'center', gap: 5,
+            }}
+          >
+            <span style={{ fontSize: 14 }}>🎮</span>
+            <span>Play while you wait</span>
+          </button>
+        </div>
+      )}
+
+      {/* ── Recent creations panel ── */}
+      {showPanel && (
+        <RecentPanel
+          creations={creations}
+          onSelect={handleSelectCreation}
+          onClose={() => setShowPanel(false)}
+        />
+      )}
+
     </div>
   )
 }
