@@ -85,8 +85,8 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
     controls.enableDamping = true
     controls.dampingFactor = 0.06
     controls.autoRotate    = false
-    controls.minDistance   = 20
-    controls.maxDistance   = 400
+    // minDistance / maxDistance are set dynamically after the geometry loads
+    // so they scale correctly regardless of the model's coordinate units.
     controlRef.current = controls
 
     let raf: number
@@ -164,6 +164,13 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
       const size = new THREE.Vector3()
       bbox.getSize(size)
       sizeRef.current = size
+
+      // Scale zoom limits to match this model's actual coordinate units.
+      // Without this, a model with small coordinates gets pushed past minDistance
+      // and appears tiny with no way to zoom in.
+      const maxDim = Math.max(size.x, size.y, size.z)
+      ctrl.minDistance = maxDim * 0.05
+      ctrl.maxDistance = maxDim * 20
 
       const material = new THREE.MeshPhongMaterial({
         color:     0xc8922a,
