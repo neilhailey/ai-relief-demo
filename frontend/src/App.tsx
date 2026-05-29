@@ -102,7 +102,7 @@ export default function App() {
     setLoading(true); setError(null)
     try {
       const { job_id } = await apiFetch<{ job_id: string }>('/api/generate-3d', { prompt })
-      setBgJob({ jobId: job_id, prompt, status: 'running', tripoStatus: 'queued', progress: 0, result: null, error: null, stlData: null })
+      setBgJob({ jobId: job_id, prompt, status: 'running', tripoStatus: 'queued', progress: 0, result: null, error: null })
       // kick off background polling — does NOT block navigation
       void pollJobBackground(job_id, prompt)
     } catch (e) {
@@ -124,8 +124,6 @@ export default function App() {
           progress:     number
           session_id:   string | null
           glb_url:      string | null
-          stl_url:      string | null
-          stl_data:     string | null
           rendered_url: string | null
           error:        string | null
         }
@@ -137,18 +135,7 @@ export default function App() {
         )
 
         if (job.status === 'success' && job.session_id && job.glb_url) {
-          // Build a blob URL from the embedded base64 STL so the viewer works
-          // even if the server restarts and wipes its ephemeral disk.
-          let stlUrl = job.stl_url ? `${API}${job.stl_url}` : ''
-          if (job.stl_data) {
-            try {
-              const bytes = Uint8Array.from(atob(job.stl_data), c => c.charCodeAt(0))
-              const blob  = new Blob([bytes], { type: 'model/stl' })
-              stlUrl      = URL.createObjectURL(blob)
-            } catch { /* fall back to file URL */ }
-          }
-
-          // GLB URL: either a Tripo CDN URL (absolute) or a local path (prefix API)
+          // GLB URL: Tripo CDN URL (absolute) survives server restarts
           const glbUrl = job.glb_url.startsWith('http')
             ? job.glb_url
             : `${API}${job.glb_url}`
@@ -160,7 +147,7 @@ export default function App() {
             images:         [],
             selectedIndex:  null,
             heightmapUrl:   null,
-            stlUrl,
+            stlUrl:         null,   // no server-side STL — viewer uses GLB directly
             glbUrl,
             renderedUrl:    job.rendered_url ?? null,
           }
@@ -537,10 +524,9 @@ export default function App() {
         )}
 
         {/* ── Step 4: 3D model ── */}
-        {step === 4 && flowMode === 'model3d' && session && session.stlUrl && session.glbUrl && (
+        {step === 4 && flowMode === 'model3d' && session && session.glbUrl && (
           <Model3dResultStep
             prompt={session.prompt}
-            stlUrl={session.stlUrl}
             glbUrl={session.glbUrl}
             renderedUrl={session.renderedUrl ?? undefined}
             sessionId={session.sessionId}

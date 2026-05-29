@@ -1,18 +1,17 @@
 import { Suspense, lazy, useState, useRef } from 'react'
-import type { CameraPreset } from './StlViewer'
+import type { CameraPreset } from './GlbViewer'
 
-const StlViewer = lazy(() => import('./StlViewer').then(m => ({ default: m.StlViewer })))
+const GlbViewer = lazy(() => import('./GlbViewer').then(m => ({ default: m.GlbViewer })))
 
 interface Props {
   prompt:      string
-  stlUrl:      string
   glbUrl:      string
   renderedUrl: string | undefined
   sessionId:   string
   onStartOver: () => void
 }
 
-export function Model3dResultStep({ prompt, stlUrl, glbUrl, renderedUrl, onStartOver }: Props) {
+export function Model3dResultStep({ prompt, glbUrl, renderedUrl, onStartOver }: Props) {
   const [activeView, setActiveView] = useState<CameraPreset>('iso')
   const [loaded,     setLoaded]     = useState(false)
   const [loadError,  setLoadError]  = useState<string | null>(null)
@@ -44,11 +43,11 @@ export function Model3dResultStep({ prompt, stlUrl, glbUrl, renderedUrl, onStart
         {renderedUrl && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.05em' }}>
-              AI Preview
+              Mesh Preview
             </div>
             <img
               src={renderedUrl}
-              alt="AI-rendered preview"
+              alt="3D mesh preview"
               style={{ width: '100%', borderRadius: 6, border: '1px solid var(--border)' }}
             />
           </div>
@@ -69,7 +68,7 @@ export function Model3dResultStep({ prompt, stlUrl, glbUrl, renderedUrl, onStart
 
         <div style={{ flex: 1 }} />
 
-        {/* Downloads */}
+        {/* Download */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <a
             href={glbUrl}
@@ -84,26 +83,11 @@ export function Model3dResultStep({ prompt, stlUrl, glbUrl, renderedUrl, onStart
             }}
           >
             <span>Download GLB</span>
-            <span style={{ fontSize: 10, opacity: 0.8 }}>textures ↓</span>
+            <span style={{ fontSize: 10, opacity: 0.8 }}>Blender · Fusion · slicer ↓</span>
           </a>
-          <a
-            href={stlUrl}
-            download="model.stl"
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '11px 14px',
-              background: 'var(--accent)',
-              color: '#fff',
-              borderRadius: 'var(--radius)',
-              textDecoration: 'none', fontWeight: 600, fontSize: 13,
-            }}
-          >
-            <span>Download STL</span>
-            <span style={{ fontSize: 10, opacity: 0.8 }}>CNC / print ↓</span>
-          </a>
-          <div style={{ fontSize: 10, color: 'var(--muted)', lineHeight: 1.5, marginTop: 4 }}>
-            GLB = full textures for Blender / slicer.<br />
-            STL = geometry only, ready for CAM or slicer.
+          <div style={{ fontSize: 10, color: 'var(--muted)', lineHeight: 1.5, marginTop: 2 }}>
+            GLB works in Blender, Fusion 360, PrusaSlicer, Bambu Studio, and most CAM software.
+            To get an STL, open the GLB in Blender and export → STL.
           </div>
         </div>
       </div>
@@ -149,9 +133,8 @@ export function Model3dResultStep({ prompt, stlUrl, glbUrl, renderedUrl, onStart
         </div>
 
         <Suspense fallback={null}>
-          <StlViewer
-            url={stlUrl}
-            scaleZ={1.0}
+          <GlbViewer
+            url={glbUrl}
             onReady={fn => { goToPresetRef.current = fn }}
             onLoadStart={() => {}}
             onLoadEnd={() => setLoaded(true)}
@@ -159,7 +142,7 @@ export function Model3dResultStep({ prompt, stlUrl, glbUrl, renderedUrl, onStart
           />
         </Suspense>
 
-        {/* Loading overlay — until first model loads or error occurs */}
+        {/* Loading overlay */}
         {!loaded && !loadError && (
           <div style={{
             position: 'absolute', inset: 0,
@@ -178,7 +161,7 @@ export function Model3dResultStep({ prompt, stlUrl, glbUrl, renderedUrl, onStart
           </div>
         )}
 
-        {/* Error overlay — shown when STL fails to load */}
+        {/* Error overlay */}
         {loadError && (
           <div style={{
             position: 'absolute', inset: 0,
@@ -195,7 +178,7 @@ export function Model3dResultStep({ prompt, stlUrl, glbUrl, renderedUrl, onStart
               fontSize: 12, color: 'var(--text-dim)', textAlign: 'center',
               maxWidth: 300, lineHeight: 1.6,
             }}>
-              The file may have expired on the server. The download links below still work — or generate a new model.
+              The model link may have expired. Try generating a new one, or use the download button.
             </div>
             <button
               onClick={onStartOver}

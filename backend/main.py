@@ -71,9 +71,7 @@ class _Job(TypedDict):
     progress:     int          # 0–100 (real value from Tripo)
     tripo_status: str          # raw Tripo status string for display
     session_id:   str | None
-    glb_url:      str | None   # Tripo CDN URL — survives server restarts
-    stl_url:      str | None   # local file path (may 404 after restart)
-    stl_data:     str | None   # base64-encoded STL — always available, stored in frontend
+    glb_url:      str | None   # Tripo CDN URL — permanent, survives server restarts
     rendered_url: str | None
     error:        str | None
 
@@ -282,7 +280,7 @@ async def api_generate_3d_start(req: Generate3dRequest):
     job_id = str(uuid.uuid4())[:8]
     _jobs[job_id] = {
         "status": "pending", "progress": 0, "tripo_status": "queued",
-        "session_id": None, "glb_url": None, "stl_url": None, "stl_data": None,
+        "session_id": None, "glb_url": None,
         "rendered_url": None, "error": None,
     }
 
@@ -324,28 +322,19 @@ async def _poll_and_finish(job_id: str, task_id: str, tripo_key: str, prompt: st
         _jobs[job_id]["tripo_status"] = tripo_status
 
     try:
-        import base64 as _b64
-        _glb, _stl, rendered_url, tripo_glb_url = await finish_tripo_task(
+        _glb, rendered_url, tripo_glb_url = await finish_tripo_task(
             tripo_key, task_id, session_dir, on_progress=_on_progress,
         )
-        # Embed the decimated STL as base64 so the frontend always has it —
-        # the local file path may 404 after a Render restart (ephemeral disk),
-        # but the base64 payload is safe to cache in browser memory.
-        stl_b64 = _b64.b64encode(_stl.read_bytes()).decode()
-        logger.info("STL base64 length: %d chars", len(stl_b64))
 
         _jobs[job_id].update({
             "status":       "success",
             "progress":     100,
             "session_id":   session_id,
-            # Tripo CDN URL for GLB download — survives server restarts
+            # Tripo CDN URL — permanent, survives server restarts, served direct to browser
             "glb_url":      tripo_glb_url or f"/api/files/{session_id}/model.glb",
-            # Local path kept as fallback; stl_data is the reliable copy
-            "stl_url":      f"/api/files/{session_id}/model.stl",
-            "stl_data":     stl_b64,
             "rendered_url": rendered_url,
         })
-        logger.info("Job %s complete (session %s)", job_id, session_id)
+        logger.info("Job %s complete (session %s) glb=%s", job_id, session_id, tripo_glb_url)
     except Exception as e:
         logger.error("Job %s failed: %s", job_id, e)
         _jobs[job_id].update({"status": "failed", "error": str(e)})

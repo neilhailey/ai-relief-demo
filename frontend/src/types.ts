@@ -31,5 +31,4 @@ export interface BackgroundJob {
   progress:    number        // 0–100, real value from Tripo API
   result:      SessionState | null
   error:       string | null
-  stlData:     string | null // base64-encoded STL embedded in the response (survives server restarts)
 }
