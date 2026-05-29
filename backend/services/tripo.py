@@ -43,8 +43,13 @@ async def create_tripo_task(api_key: str, prompt: str) -> str:
         "type":          "text_to_model",
         "model_version": "v2.5-20250123",
         "prompt":        prompt,
-        "texture":       True,
-        "pbr":           True,
+        # Textures/PBR add 2-3 minutes to generation and are useless for CNC.
+        # Skipping them is the single biggest speed-up.
+        "texture":       False,
+        "pbr":           False,
+        # Ask Tripo to cap faces during generation so the download is smaller
+        # and our post-hoc decimation step is a no-op.
+        "face_limit":    50_000,
     }
     async with aiohttp.ClientSession() as http:
         async with http.post(f"{TRIPO_API}/task", headers=headers, json=payload) as resp:
