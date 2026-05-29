@@ -42,8 +42,6 @@ async def create_tripo_task(api_key: str, prompt: str) -> str:
         # Textures/PBR add 2-3 minutes and are useless for CNC geometry.
         "texture":       False,
         "pbr":           False,
-        # Ask Tripo to cap faces during generation so the download is smaller.
-        "face_limit":    50_000,
     }
     async with aiohttp.ClientSession() as http:
         async with http.post(f"{TRIPO_API}/task", headers=headers, json=payload) as resp:
