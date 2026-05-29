@@ -4,6 +4,9 @@ import os
 from pathlib import Path
 import logging
 
+import numpy as np
+from PIL import Image, ImageFilter
+
 logger = logging.getLogger(__name__)
 
 # ── Visual render prompt (shown to user for selection) ──────────────────────
@@ -190,6 +193,35 @@ async def enhance_uploaded_for_carving(
     return enhanced_path, subject
 
 
+def _fix_heightmap_artifact(path: Path) -> None:
+    """
+    Post-process a generated heightmap to remove the dark rectangular tile-seam
+    artifact that gpt-image-1 sometimes produces at internal 512 px boundaries.
+
+    Strategy: find pixels significantly darker than their local neighbourhood
+    (estimated by a wide Gaussian blur) and lift them to match.  The pure-black
+    background outside the subject is excluded so only in-subject artifacts are
+    corrected.
+    """
+    img = Image.open(path).convert("L")
+    arr = np.array(img, dtype=np.float32)
+
+    # Wide Gaussian → local average brightness at every pixel
+    local_avg = np.array(img.filter(ImageFilter.GaussianBlur(radius=22)), dtype=np.float32)
+
+    # Mask: ≥25 % darker than local average AND in a real-content region (not bg)
+    mask = (arr < local_avg * 0.75) & (local_avg > 20)
+
+    fixed = arr.copy()
+    fixed[mask] = local_avg[mask] * 0.90   # lift to 90 % of expected value
+
+    # Gentle smooth to remove sharp edges at the repair boundary
+    result = Image.fromarray(np.clip(fixed, 0, 255).astype(np.uint8), mode="L")
+    result = result.filter(ImageFilter.GaussianBlur(radius=1))
+    result.save(path)
+    logger.info("Heightmap artifact fix: %d px corrected", int(mask.sum()))
+
+
 async def generate_heightmap(
     prompt: str,
     session_dir: Path,
@@ -231,4 +263,8 @@ async def generate_heightmap(
     path = session_dir / "heightmap.png"
     path.write_bytes(base64.b64decode(image_data))
     logger.info("Heightmap saved → %s", path)
+
+    # Remove dark tile-seam artifact from gpt-image-1
+    _fix_heightmap_artifact(path)
+
     return path
