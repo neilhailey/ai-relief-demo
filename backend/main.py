@@ -14,6 +14,7 @@ from services.image_gen import (
     describe_image_subject, enhance_uploaded_for_carving,
 )
 from services.stl_builder import depth_to_stl
+from services.tripo import generate_3d_model
 
 load_dotenv()
 
@@ -53,6 +54,10 @@ class ReliefRequest(BaseModel):
 
 class EnhanceImageRequest(BaseModel):
     session_id: str
+
+
+class Generate3dRequest(BaseModel):
+    prompt: str
 
 
 class UpdateReliefRequest(BaseModel):
@@ -240,6 +245,38 @@ async def api_update_relief(req: UpdateReliefRequest):
         raise HTTPException(status_code=500, detail=f"Relief update failed: {e}")
 
 
+@app.post("/api/generate-3d")
+async def api_generate_3d(req: Generate3dRequest):
+    """Generate a full 3D mesh from a text prompt via Tripo3D."""
+    if not req.prompt.strip():
+        raise HTTPException(status_code=400, detail="Prompt cannot be empty")
+
+    tripo_key = os.getenv("TRIPO_API_KEY", "")
+    if not tripo_key:
+        raise HTTPException(status_code=500, detail="TRIPO_API_KEY is not configured on this server")
+
+    session_id  = str(uuid.uuid4())[:8]
+    session_dir = OUTPUT_DIR / session_id
+    session_dir.mkdir(exist_ok=True)
+    (session_dir / "prompt.txt").write_text(req.prompt.strip())
+
+    try:
+        _glb_path, _stl_path, rendered_data_url = await generate_3d_model(
+            tripo_key, req.prompt.strip(), session_dir,
+        )
+        response: dict = {
+            "session_id": session_id,
+            "glb_url":    f"/api/files/{session_id}/model.glb",
+            "stl_url":    f"/api/files/{session_id}/model.stl",
+        }
+        if rendered_data_url:
+            response["rendered_url"] = rendered_data_url
+        return response
+    except Exception as e:
+        logger.error("3D model generation failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"3D model generation failed: {e}")
+
+
 @app.get("/api/files/{session_id}/{filename}")
 async def get_file(session_id: str, filename: str):
     if ".." in session_id or ".." in filename:
@@ -247,7 +284,7 @@ async def get_file(session_id: str, filename: str):
     file_path = OUTPUT_DIR / session_id / filename
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found")
-    media = {".png": "image/png", ".stl": "model/stl"}
+    media = {".png": "image/png", ".stl": "model/stl", ".glb": "model/gltf-binary"}
     return FileResponse(
         file_path,
         media_type=media.get(file_path.suffix.lower(), "application/octet-stream"),
