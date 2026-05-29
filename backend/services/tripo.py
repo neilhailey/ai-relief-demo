@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 TRIPO_API     = "https://api.tripo3d.ai/v2/openapi"
 POLL_INTERVAL = 5      # seconds between status polls
-POLL_TIMEOUT  = 600    # max seconds to wait (10 minutes — Tripo queue can be slow)
+POLL_TIMEOUT  = 1200   # max seconds to wait (20 minutes — includes Tripo queue time)
 
 
 async def create_tripo_task(api_key: str, prompt: str) -> str:
