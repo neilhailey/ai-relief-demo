@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// v3
+// v4
 export default defineConfig({
   plugins: [react()],
   server: {
