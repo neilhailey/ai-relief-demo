@@ -113,6 +113,10 @@ export default function App() {
   }
 
   async function pollJobBackground(jobId: string, prompt: string) {
+    // Track when Tripo finishes generating so we can timeout if the backend
+    // gets stuck post-generation (e.g. old code downloading a huge GLB).
+    let tripoSucceededAt: number | null = null
+
     while (true) {
       await new Promise<void>(r => setTimeout(r, 4000))
       try {
@@ -121,7 +125,7 @@ export default function App() {
           // 404 = server restarted and lost the in-memory job — surface as failure
           if (res.status === 404) {
             setBgJob(j => j?.jobId === jobId
-              ? { ...j, status: 'failed', error: 'Server restarted during generation — please try again' }
+              ? { ...j, status: 'failed', error: 'Server restarted — please try again' }
               : j
             )
             break
@@ -136,6 +140,19 @@ export default function App() {
           glb_url:      string | null
           rendered_url: string | null
           error:        string | null
+        }
+
+        // Record when Tripo first reports success so we can timeout post-gen stalls
+        if (job.tripo_status === 'success' && tripoSucceededAt === null)
+          tripoSucceededAt = Date.now()
+
+        // If backend is stuck post-generation for > 3 min, give up
+        if (tripoSucceededAt && Date.now() - tripoSucceededAt > 3 * 60_000) {
+          setBgJob(j => j?.jobId === jobId
+            ? { ...j, status: 'failed', error: 'Timed out waiting for server — please try again' }
+            : j
+          )
+          break
         }
 
         // update progress + Tripo phase for the floating indicator
@@ -157,7 +174,7 @@ export default function App() {
             images:         [],
             selectedIndex:  null,
             heightmapUrl:   null,
-            stlUrl:         null,   // no server-side STL — viewer uses GLB directly
+            stlUrl:         null,
             glbUrl,
             renderedUrl:    job.rendered_url ?? null,
           }

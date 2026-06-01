@@ -16,22 +16,37 @@ export function Model3dGeneratingStep({
 }: Props) {
 
   // Animated ellipsis for queued / converting states
-  const [dots, setDots] = useState('.')
+  const [dots, setDots]           = useState('.')
+  // Track how long we've been in the "converting" phase
+  const [convertingSecs, setConvertingSecs] = useState(0)
+
   useEffect(() => {
     if (status !== 'running') return
     const t = setInterval(() => setDots(d => d.length >= 3 ? '.' : d + '.'), 500)
     return () => clearInterval(t)
   }, [status])
 
+  // Count seconds spent in the post-generation "Converting" phase
+  useEffect(() => {
+    if (tripoStatus !== 'success' || status !== 'running') {
+      setConvertingSecs(0)
+      return
+    }
+    const t = setInterval(() => setConvertingSecs(s => s + 1), 1000)
+    return () => clearInterval(t)
+  }, [tripoStatus, status])
+
   const isRunning = status === 'running'
   const isDone    = status === 'done'
   const isFailed  = status === 'failed'
+
+  const isStuck = tripoStatus === 'success' && convertingSecs > 90   // >90 s converting = warn
 
   const statusLabel =
     isDone                    ? '3D model is ready!' :
     isFailed                  ? 'Generation failed'  :
     tripoStatus === 'queued'  ? `Queued in Tripo${dots}` :
-    tripoStatus === 'success' ? `Converting mesh to STL${dots}` :
+    tripoStatus === 'success' ? (isStuck ? 'Taking longer than expected…' : `Finalising model${dots}`) :
     `Generating 3D model… ${progress}%`
 
   // 0–100 fill for the determinate bar; 0 means use shimmer
@@ -179,6 +194,20 @@ export function Model3dGeneratingStep({
         >
           Try again
         </button>
+      )}
+
+      {/* ── Stuck hint ──────────────────────────────────────────────────── */}
+      {isStuck && isRunning && (
+        <div style={{
+          padding: '10px 16px',
+          background: 'rgba(251,146,60,.08)',
+          border: '1px solid rgba(251,146,60,.25)',
+          borderRadius: 8,
+          fontSize: 12, color: '#fdba74', textAlign: 'center', lineHeight: 1.6,
+        }}>
+          The server is taking longer than usual to finalise.<br />
+          You can wait a bit more, or cancel and try again — generation should be faster next time.
+        </div>
       )}
 
       {/* ── Cancel link ─────────────────────────────────────────────────── */}
