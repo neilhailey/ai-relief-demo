@@ -599,7 +599,9 @@ export default function App() {
                   fontSize: 10, color: 'var(--muted)', marginTop: 1,
                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 }}>
-                  "{bgJob.prompt}"
+                  {bgJob.status === 'failed' && bgJob.error
+                    ? bgJob.error
+                    : `"${bgJob.prompt}"`}
                 </div>
               </div>
             </div>

@@ -39,8 +39,7 @@ async def create_tripo_task(api_key: str, prompt: str) -> str:
         "type":          "text_to_model",
         "model_version": "v2.5-20250123",
         "prompt":        prompt,
-        # Textures/PBR add 2-3 minutes and are useless for CNC geometry.
-        "texture":       False,
+        "texture":       True,
         "pbr":           False,
     }
     async with aiohttp.ClientSession() as http:
