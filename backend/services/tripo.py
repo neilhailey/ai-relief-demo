@@ -62,9 +62,10 @@ async def finish_tripo_task(
     task_id: str,
     session_dir: Path,
     on_progress: Callable[[int, str], None] | None = None,
-) -> tuple[Path, str | None, str | None]:
+) -> tuple[str | None, str | None]:
     """
-    Poll a Tripo task until it finishes, download the GLB.
+    Poll a Tripo task until it finishes.  No GLB download — the frontend
+    fetches the model directly from Tripo's CDN using the returned URL.
 
     Parameters
     ----------
@@ -73,7 +74,7 @@ async def finish_tripo_task(
 
     Returns
     -------
-    (glb_path, rendered_data_url | None, tripo_glb_url | None)
+    (rendered_data_url | None, tripo_glb_url | None)
     """
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -134,13 +135,10 @@ async def finish_tripo_task(
                 "the model may still be queued; try again shortly"
             )
 
-        # ── Download GLB ──────────────────────────────────────────────────────
-        logger.info("Downloading GLB…")
-        async with http.get(model_url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
-            resp.raise_for_status()
-            glb_bytes = await resp.read()
-
-        # ── Download rendered preview (best-effort) ───────────────────────────
+        # ── Download rendered preview only (small PNG, best-effort) ──────────
+        # We do NOT download the GLB here. The Tripo CDN URL (model_url) is
+        # returned directly to the frontend, which fetches it via GLTFLoader.
+        # Skipping the 20-50 MB GLB download eliminates the main stall point.
         rendered_data_url = None
         if rendered_url:
             try:
@@ -155,9 +153,5 @@ async def finish_tripo_task(
             except Exception as exc:
                 logger.warning("Could not download rendered preview: %s", exc)
 
-    # ── Save GLB ──────────────────────────────────────────────────────────────
-    glb_path = session_dir / "model.glb"
-    glb_path.write_bytes(glb_bytes)
-    logger.info("Saved GLB %d bytes → %s", len(glb_bytes), glb_path)
-
-    return glb_path, rendered_data_url, model_url
+    logger.info("Tripo task %s done, CDN URL: %s", task_id, model_url)
+    return rendered_data_url, model_url

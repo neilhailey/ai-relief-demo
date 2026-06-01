@@ -117,7 +117,17 @@ export default function App() {
       await new Promise<void>(r => setTimeout(r, 4000))
       try {
         const res = await fetch(`${API}/api/generate-3d/status/${jobId}`)
-        if (!res.ok) continue
+        if (!res.ok) {
+          // 404 = server restarted and lost the in-memory job — surface as failure
+          if (res.status === 404) {
+            setBgJob(j => j?.jobId === jobId
+              ? { ...j, status: 'failed', error: 'Server restarted during generation — please try again' }
+              : j
+            )
+            break
+          }
+          continue   // other transient errors — keep polling
+        }
         const job = await res.json() as {
           status:       string
           tripo_status: string

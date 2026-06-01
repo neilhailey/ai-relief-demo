@@ -322,7 +322,7 @@ async def _poll_and_finish(job_id: str, task_id: str, tripo_key: str, prompt: st
         _jobs[job_id]["tripo_status"] = tripo_status
 
     try:
-        _glb, rendered_url, tripo_glb_url = await finish_tripo_task(
+        rendered_url, tripo_glb_url = await finish_tripo_task(
             tripo_key, task_id, session_dir, on_progress=_on_progress,
         )
 
@@ -330,8 +330,7 @@ async def _poll_and_finish(job_id: str, task_id: str, tripo_key: str, prompt: st
             "status":       "success",
             "progress":     100,
             "session_id":   session_id,
-            # Tripo CDN URL — permanent, survives server restarts, served direct to browser
-            "glb_url":      tripo_glb_url or f"/api/files/{session_id}/model.glb",
+            "glb_url":      tripo_glb_url,   # Tripo CDN URL — frontend fetches directly
             "rendered_url": rendered_url,
         })
         logger.info("Job %s complete (session %s) glb=%s", job_id, session_id, tripo_glb_url)
