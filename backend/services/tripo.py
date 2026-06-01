@@ -135,23 +135,9 @@ async def finish_tripo_task(
                 "the model may still be queued; try again shortly"
             )
 
-        # ── Download rendered preview only (small PNG, best-effort) ──────────
-        # We do NOT download the GLB here. The Tripo CDN URL (model_url) is
-        # returned directly to the frontend, which fetches it via GLTFLoader.
-        # Skipping the 20-50 MB GLB download eliminates the main stall point.
-        rendered_data_url = None
-        if rendered_url:
-            try:
-                async with http.get(rendered_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                    if resp.status == 200:
-                        import base64
-                        rendered_bytes    = await resp.read()
-                        rendered_data_url = (
-                            f"data:image/png;base64,{base64.b64encode(rendered_bytes).decode()}"
-                        )
-                        (session_dir / "rendered.png").write_bytes(rendered_bytes)
-            except Exception as exc:
-                logger.warning("Could not download rendered preview: %s", exc)
-
-    logger.info("Tripo task %s done, CDN URL: %s", task_id, model_url)
-    return rendered_data_url, model_url
+    # Return both CDN URLs directly — no server-side downloading at all.
+    # The frontend's GLTFLoader fetches the GLB from Tripo's CDN,
+    # and the rendered preview is displayed with a plain <img> tag.
+    # Downloading on the server was the root cause of the post-generation hang.
+    logger.info("Tripo task %s done  glb=%s  preview=%s", task_id, model_url, rendered_url)
+    return rendered_url, model_url
