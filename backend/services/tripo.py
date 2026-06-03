@@ -86,14 +86,18 @@ async def finish_tripo_task(
     elapsed      = 0
     last_pct     = -1
 
-    async with aiohttp.ClientSession() as http:
+    # ── Poll until done ───────────────────────────────────────────────────────
+    # Each poll uses its own short-lived ClientSession so the session closes
+    # immediately after each request (no keep-alive connection to clean up).
+    # A single long-lived session caused the post-generation hang: aiohttp
+    # waited to gracefully close the keep-alive TCP connection to Tripo's
+    # API server, blocking the coroutine for minutes after polling finished.
+    while elapsed < POLL_TIMEOUT:
+        await asyncio.sleep(POLL_INTERVAL)
+        elapsed += POLL_INTERVAL
 
-        # ── Poll until done ───────────────────────────────────────────────────
-        while elapsed < POLL_TIMEOUT:
-            await asyncio.sleep(POLL_INTERVAL)
-            elapsed += POLL_INTERVAL
-
-            try:
+        try:
+            async with aiohttp.ClientSession() as http:
                 async with http.get(
                     f"{TRIPO_API}/task/{task_id}", headers=headers,
                     timeout=aiohttp.ClientTimeout(total=20),
@@ -102,42 +106,40 @@ async def finish_tripo_task(
                         logger.warning("Tripo poll %d — retrying", resp.status)
                         continue
                     data = await resp.json()
-            except Exception as exc:
-                logger.warning("Tripo poll error: %s — retrying", exc)
-                continue
+        except Exception as exc:
+            logger.warning("Tripo poll error: %s — retrying", exc)
+            continue
 
-            if data.get("code", -1) != 0:
-                raise RuntimeError(f"Tripo status error: {data.get('message', data)}")
+        if data.get("code", -1) != 0:
+            raise RuntimeError(f"Tripo status error: {data.get('message', data)}")
 
-            task         = data["data"]
-            tripo_status = task.get("status", "")
-            progress     = int(task.get("progress", 0))
-            logger.info("Tripo %s: %s %d%%", task_id, tripo_status, progress)
+        task         = data["data"]
+        tripo_status = task.get("status", "")
+        progress     = int(task.get("progress", 0))
+        logger.info("Tripo %s: %s %d%%", task_id, tripo_status, progress)
 
-            if progress != last_pct:
-                last_pct = progress
-                if on_progress:
-                    on_progress(progress, tripo_status)
+        if progress != last_pct:
+            last_pct = progress
+            if on_progress:
+                on_progress(progress, tripo_status)
 
-            if tripo_status == "success":
-                output       = task.get("output", {})
-                model_url    = output.get("pbr_model") or output.get("model")
-                rendered_url = output.get("rendered_image")
-                if on_progress:
-                    on_progress(100, "success")
-                break
-            if tripo_status in ("failed", "cancelled", "banned", "expired"):
-                raise RuntimeError(f"Tripo generation {tripo_status}")
+        if tripo_status == "success":
+            output       = task.get("output", {})
+            model_url    = output.get("pbr_model") or output.get("model")
+            rendered_url = output.get("rendered_image")
+            if on_progress:
+                on_progress(100, "success")
+            break
+        if tripo_status in ("failed", "cancelled", "banned", "expired"):
+            raise RuntimeError(f"Tripo generation {tripo_status}")
 
-        if model_url is None:
-            raise RuntimeError(
-                f"Tripo generation timed out after {POLL_TIMEOUT}s — "
-                "the model may still be queued; try again shortly"
-            )
+    if model_url is None:
+        raise RuntimeError(
+            f"Tripo generation timed out after {POLL_TIMEOUT}s — "
+            "the model may still be queued; try again shortly"
+        )
 
-    # Return both CDN URLs directly — no server-side downloading at all.
-    # The frontend's GLTFLoader fetches the GLB from Tripo's CDN,
-    # and the rendered preview is displayed with a plain <img> tag.
-    # Downloading on the server was the root cause of the post-generation hang.
+    # Return CDN URLs directly — frontend fetches the GLB via GLTFLoader and
+    # displays the preview with a plain <img> tag (no server-side downloading).
     logger.info("Tripo task %s done  glb=%s  preview=%s", task_id, model_url, rendered_url)
     return rendered_url, model_url
