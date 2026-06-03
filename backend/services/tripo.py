@@ -62,10 +62,9 @@ async def finish_tripo_task(
     task_id: str,
     session_dir: Path,
     on_progress: Callable[[int, str], None] | None = None,
-) -> tuple[str | None, str | None]:
+) -> tuple[str | None, Path]:
     """
-    Poll a Tripo task until it finishes.  No GLB download — the frontend
-    fetches the model directly from Tripo's CDN using the returned URL.
+    Poll a Tripo task until it finishes, then download the GLB to disk.
 
     Parameters
     ----------
@@ -74,7 +73,9 @@ async def finish_tripo_task(
 
     Returns
     -------
-    (rendered_data_url | None, tripo_glb_url | None)
+    (rendered_cdn_url | None, glb_path)
+        rendered_cdn_url is passed directly to the browser (<img> bypasses CORS).
+        glb_path is the local file; serve it via FastAPI which has CORS headers.
     """
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -139,7 +140,20 @@ async def finish_tripo_task(
             "the model may still be queued; try again shortly"
         )
 
-    # Return CDN URLs directly — frontend fetches the GLB via GLTFLoader and
-    # displays the preview with a plain <img> tag (no server-side downloading).
-    logger.info("Tripo task %s done  glb=%s  preview=%s", task_id, model_url, rendered_url)
-    return rendered_url, model_url
+    # ── Download GLB to disk ──────────────────────────────────────────────────
+    # We cannot pass the Tripo CDN URL directly to the browser: Tripo's CDN
+    # has no Access-Control-Allow-Origin headers, so GLTFLoader (XHR) is
+    # blocked by CORS.  Download here and serve via FastAPI, which has the
+    # CORS middleware configured.  Fresh session → closes cleanly with no hang.
+    logger.info("Downloading GLB (~%s)…", model_url[:60])
+    glb_path = session_dir / "model.glb"
+    async with aiohttp.ClientSession() as dl:
+        async with dl.get(model_url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+            resp.raise_for_status()
+            glb_path.write_bytes(await resp.read())
+    logger.info("GLB saved %d bytes → %s", glb_path.stat().st_size, glb_path)
+
+    # rendered_url is a signed CDN URL — browsers display <img> cross-origin
+    # without CORS so we can pass it directly (no download needed).
+    logger.info("Tripo task %s done  glb=%s  preview=%s", task_id, glb_path, rendered_url)
+    return rendered_url, glb_path

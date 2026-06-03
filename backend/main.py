@@ -322,7 +322,7 @@ async def _poll_and_finish(job_id: str, task_id: str, tripo_key: str, prompt: st
         _jobs[job_id]["tripo_status"] = tripo_status
 
     try:
-        rendered_url, tripo_glb_url = await finish_tripo_task(
+        rendered_url, glb_path = await finish_tripo_task(
             tripo_key, task_id, session_dir, on_progress=_on_progress,
         )
 
@@ -330,10 +330,11 @@ async def _poll_and_finish(job_id: str, task_id: str, tripo_key: str, prompt: st
             "status":       "success",
             "progress":     100,
             "session_id":   session_id,
-            "glb_url":      tripo_glb_url,   # Tripo CDN URL — frontend fetches directly
+            # Serve GLB from FastAPI (has CORS headers) — Tripo CDN has none
+            "glb_url":      f"/api/files/{session_id}/model.glb",
             "rendered_url": rendered_url,
         })
-        logger.info("Job %s complete (session %s) glb=%s", job_id, session_id, tripo_glb_url)
+        logger.info("Job %s complete (session %s) glb=%s", job_id, session_id, glb_path)
     except Exception as e:
         logger.error("Job %s failed: %s", job_id, e)
         _jobs[job_id].update({"status": "failed", "error": str(e)})
