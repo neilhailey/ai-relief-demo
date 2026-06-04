@@ -16,11 +16,13 @@ export interface SessionState {
 
 export interface Creation {
   id:        string
+  dbId:      string | null   // Supabase row id (null if not signed in)
   type:      'relief' | 'model3d'
   prompt:    string
   thumbnail: string | null   // data URL — heightmap for relief, rendered image for 3D
   session:   SessionState
   flowMode:  FlowMode
+  isPublic:  boolean
 }
 
 export interface BackgroundJob {

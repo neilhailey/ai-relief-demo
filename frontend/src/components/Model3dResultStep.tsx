@@ -1,5 +1,6 @@
 import { Suspense, lazy, useState, useRef } from 'react'
 import type { CameraPreset } from './StlViewer'
+import { PublishButton } from './PublishButton'
 
 const StlViewer = lazy(() => import('./StlViewer').then(m => ({ default: m.StlViewer })))
 
@@ -8,10 +9,13 @@ interface Props {
   stlUrl:      string
   renderedUrl: string | undefined
   sessionId:   string
+  dbId:        string | null
+  isPublic:    boolean
+  onPublish:   (nowPublic: boolean) => void
   onStartOver: () => void
 }
 
-export function Model3dResultStep({ prompt, stlUrl, renderedUrl, onStartOver }: Props) {
+export function Model3dResultStep({ prompt, stlUrl, renderedUrl, dbId, isPublic, onPublish, onStartOver }: Props) {
   const [activeView, setActiveView] = useState<CameraPreset>('iso')
   const [loaded,     setLoaded]     = useState(false)
   const [loadError,  setLoadError]  = useState<string | null>(null)
@@ -87,6 +91,11 @@ export function Model3dResultStep({ prompt, stlUrl, renderedUrl, onStartOver }: 
           </a>
           <div style={{ fontSize: 10, color: 'var(--muted)', lineHeight: 1.5, marginTop: 2 }}>
             STL works with all CNC CAM software and 3D printer slicers.
+          </div>
+
+          {/* Publish to gallery */}
+          <div style={{ marginTop: 8 }}>
+            <PublishButton dbId={dbId} isPublic={isPublic} onToggle={onPublish} />
           </div>
         </div>
       </div>

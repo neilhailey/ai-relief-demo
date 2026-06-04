@@ -11,6 +11,7 @@ import logging
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+
 def main() -> None:
     if len(sys.argv) < 3:
         print("usage: python convert_glb.py <glb_path> <stl_path> [max_faces]", file=sys.stderr)
@@ -18,9 +19,9 @@ def main() -> None:
 
     glb_path  = sys.argv[1]
     stl_path  = sys.argv[2]
-    max_faces = int(sys.argv[3]) if len(sys.argv) > 3 else 100_000
+    max_faces = int(sys.argv[3]) if len(sys.argv) > 3 else 200_000  # generous limit
 
-    import trimesh  # imported here — never in the FastAPI process
+    import trimesh
 
     loaded = trimesh.load(glb_path, force="mesh")
 
@@ -42,10 +43,20 @@ def main() -> None:
 
     if len(combined.faces) > max_faces:
         logger.info("Decimating %d → %d faces…", len(combined.faces), max_faces)
-        combined = combined.simplify_quadric_decimation(max_faces)
-        if not len(combined.faces):
-            print("Mesh empty after decimation", file=sys.stderr)
-            sys.exit(2)
+        try:
+            result = combined.simplify_quadric_decimation(max_faces)
+            if result is not None and hasattr(result, 'faces') and len(result.faces) > 0:
+                combined = result
+                logger.info("Decimated to %d faces", len(combined.faces))
+            else:
+                raise RuntimeError("Empty result from decimation")
+        except Exception as exc:
+            # simplify_quadric_decimation can fail on non-manifold or complex meshes.
+            # Exporting the full mesh is fine — STL for 300k faces ≈ 15 MB.
+            logger.warning(
+                "Quadric decimation failed (%s) — exporting full mesh (%d faces)",
+                exc, len(combined.faces),
+            )
 
     combined.export(stl_path)
     logger.info("STL written: %s  (%d faces)", stl_path, len(combined.faces))

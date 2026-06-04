@@ -4,6 +4,9 @@ import type { SessionState, Creation, BackgroundJob } from './types'
 import type { User } from '@supabase/supabase-js'
 import { supabase, saveCreation, loadCreations, uploadDataUrl } from './lib/supabase'
 import { AuthModal } from './components/AuthModal'
+import { GalleryPage } from './components/GalleryPage'
+import type { DbCreation } from './lib/supabase'
+import { useLang } from './contexts/LanguageContext'
 import { StepIndicator, UPLOAD_LABELS, MODEL3D_LABELS } from './components/StepIndicator'
 import { PromptStep } from './components/PromptStep'
 import { UploadStep } from './components/UploadStep'
@@ -43,14 +46,16 @@ export default function App() {
   const [session,   setSession]   = useState<SessionState | null>(null)
 
   // ── Background 3D job + recent creations ─────────────────────────────────
-  const [bgJob,     setBgJob]     = useState<BackgroundJob | null>(null)
-  const [creations, setCreations] = useState<Creation[]>([])
-  const [showPanel, setShowPanel] = useState(false)
-  const [showGame,  setShowGame]  = useState(false)
+  const [bgJob,      setBgJob]      = useState<BackgroundJob | null>(null)
+  const [creations,  setCreations]  = useState<Creation[]>([])
+  const [showPanel,  setShowPanel]  = useState(false)
+  const [showGame,   setShowGame]   = useState(false)
+  const [showGallery,setShowGallery]= useState(false)
 
-  // ── Auth ──────────────────────────────────────────────────────────────────
+  // ── Auth + language ───────────────────────────────────────────────────────
   const [user,      setUser]      = useState<User | null>(null)
   const [showAuth,  setShowAuth]  = useState(false)
+  const { lang, t, toggle: toggleLang } = useLang()
 
   useEffect(() => {
     if (!supabase) return
@@ -63,12 +68,14 @@ export default function App() {
         // Reload DB creations when user signs in
         loadCreations().then(rows => {
           setCreations(rows.map(r => ({
-            id:       r.id,
-            type:     r.type,
-            prompt:   r.prompt,
-            flowMode: r.flow_mode as FlowMode,
+            id:        r.id,
+            dbId:      r.id,
+            type:      r.type,
+            prompt:    r.prompt,
+            flowMode:  r.flow_mode as FlowMode,
             thumbnail: r.thumbnail ?? null,
-            session:  (r.session ?? {}) as unknown as SessionState,
+            session:   (r.session ?? {}) as unknown as SessionState,
+            isPublic:  r.is_public ?? false,
           })))
         })
       } else {
@@ -78,17 +85,16 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [])
 
-  async function persistCreation(c: Creation) {
-    if (!user) return
+  async function persistCreation(c: Creation): Promise<string | null> {
+    if (!user) return null
     const uid = Math.random().toString(36).slice(2, 8)
-    // Upload thumbnail to Supabase Storage if it's a data URL
     let thumbUrl = c.thumbnail
     if (thumbUrl && thumbUrl.startsWith('data:')) {
       const ext = thumbUrl.startsWith('data:image/webp') ? 'webp' : 'png'
       const ct  = ext === 'webp' ? 'image/webp' : 'image/png'
       thumbUrl = await uploadDataUrl(thumbUrl, `thumbnails/${uid}.${ext}`, ct) ?? thumbUrl
     }
-    await saveCreation({
+    const row = await saveCreation({
       type:      c.type,
       flow_mode: c.flowMode,
       prompt:    c.prompt,
@@ -97,14 +103,28 @@ export default function App() {
       stl_url:   c.session.stlUrl ?? null,
       session:   c.session as unknown as Record<string, unknown>,
     })
+    return row?.id ?? null
   }
 
-  function addCreation(c: Omit<Creation, 'id'>) {
-    const entry: Creation = { ...c, id: Math.random().toString(36).slice(2, 8) }
+  function addCreation(c: Omit<Creation, 'id' | 'dbId' | 'isPublic'>) {
+    const entry: Creation = { ...c, id: Math.random().toString(36).slice(2, 8), dbId: null, isPublic: false }
     setCreations(prev => [entry, ...prev].slice(0, 20))
-    // Persist to DB in background if signed in
-    void persistCreation(entry)
+    // Persist to DB in background and store the returned DB id
+    persistCreation(entry).then(dbId => {
+      if (dbId) {
+        setCreations(prev => prev.map(p => p.id === entry.id ? { ...p, dbId } : p))
+      }
+    })
   }
+
+  function handlePublishToggle(creationId: string, nowPublic: boolean) {
+    setCreations(prev => prev.map(c => c.id === creationId ? { ...c, isPublic: nowPublic } : c))
+    // Also update session if that creation is currently viewed
+    setCurrentCreationId(id => id)  // no-op, just here for clarity
+  }
+
+  // Track which creation is currently being viewed
+  const [currentCreationId, setCurrentCreationId] = useState<string | null>(null)
 
   function handleSelectCreation(id: string) {
     const c = creations.find(x => x.id === id)
@@ -359,11 +379,38 @@ export default function App() {
             fontSize: 10, padding: '2px 8px', borderRadius: 10,
             background: 'rgba(37,99,235,.2)', color: 'var(--accent-glow)',
             border: '1px solid rgba(59,130,246,.3)', fontWeight: 500,
-          }}>AI Relief</span>
+          }}>{t.appTagline}</span>
         </div>
 
-        {/* Right side: auth + recent */}
+        {/* Right side: language toggle + auth + recent */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+
+          {/* Gallery button */}
+          <button
+            onClick={() => setShowGallery(true)}
+            style={{
+              padding: '5px 13px', borderRadius: 20, cursor: 'pointer',
+              background: 'var(--surface2)', border: '1px solid var(--border)',
+              fontSize: 12, fontWeight: 600, color: 'var(--text-dim)',
+              transition: 'all .2s',
+            }}
+          >
+            🌐 Gallery
+          </button>
+
+          {/* Language toggle */}
+          <button
+            onClick={toggleLang}
+            title={lang === 'en' ? '切换到中文' : 'Switch to English'}
+            style={{
+              padding: '5px 11px', borderRadius: 20, cursor: 'pointer',
+              background: 'var(--surface2)', border: '1px solid var(--border)',
+              fontSize: 12, fontWeight: 700, color: 'var(--text-dim)',
+              letterSpacing: '.02em', transition: 'all .2s',
+            }}
+          >
+            {lang === 'en' ? '中文' : 'EN'}
+          </button>
 
           {/* Auth button */}
           {supabase && (
@@ -379,7 +426,7 @@ export default function App() {
                     background: 'var(--surface2)', border: '1px solid var(--border)',
                     fontSize: 11, fontWeight: 600, color: 'var(--text-dim)',
                   }}
-                >Sign out</button>
+                >{t.signOut}</button>
               </div>
             ) : (
               <button
@@ -389,7 +436,7 @@ export default function App() {
                   background: 'var(--accent)', border: 'none',
                   fontSize: 12, fontWeight: 700, color: '#fff',
                 }}
-              >Sign in</button>
+              >{t.signIn}</button>
             )
           )}
 
@@ -408,7 +455,7 @@ export default function App() {
           >
             <span style={{ fontSize: 13 }}>🕐</span>
             <span style={{ fontSize: 12, fontWeight: 600, color: showPanel ? 'var(--accent)' : 'var(--text-dim)' }}>
-              Recent
+              {t.recent}
             </span>
             <span style={{
               width: 18, height: 18, borderRadius: '50%',
@@ -489,8 +536,8 @@ export default function App() {
             {([
               {
                 mode:   'ai'      as const,
-                label:  'AI Relief',
-                desc:   'Describe anything — AI generates an image then carves it into a flat relief panel',
+                label:  t.aiRelief,
+                desc:   t.aiReliefDesc,
                 img:    '/tab-relief.jpg',
                 accent: 'var(--accent)',
                 glow:   'rgba(249,115,22,.18)',
@@ -498,8 +545,8 @@ export default function App() {
               },
               {
                 mode:   'upload'  as const,
-                label:  'Upload Image',
-                desc:   'Use your own photo or artwork — AI enhances it then converts to a carved relief',
+                label:  t.uploadImage,
+                desc:   t.uploadImageDesc,
                 img:    '/tab-upload.jpg',
                 accent: 'var(--accent)',
                 glow:   'rgba(249,115,22,.18)',
@@ -507,8 +554,8 @@ export default function App() {
               },
               {
                 mode:   'model3d' as const,
-                label:  'Full 3D Model',
-                desc:   'Describe any object — AI builds a complete 3D mesh for rotary CNC or printing',
+                label:  t.full3dModel,
+                desc:   t.full3dModelDesc,
                 img:    '/tab-model3d.jpg',
                 accent: '#a5b4fc',
                 glow:   'rgba(99,102,241,.18)',
@@ -645,6 +692,12 @@ export default function App() {
             stlUrl={session.stlUrl}
             renderedUrl={session.renderedUrl ?? undefined}
             sessionId={session.sessionId}
+            dbId={currentCreationId ? (creations.find(c => c.id === currentCreationId)?.dbId ?? null) : (creations[0]?.dbId ?? null)}
+            isPublic={currentCreationId ? (creations.find(c => c.id === currentCreationId)?.isPublic ?? false) : (creations[0]?.isPublic ?? false)}
+            onPublish={nowPublic => {
+              const cid = currentCreationId ?? creations[0]?.id
+              if (cid) handlePublishToggle(cid, nowPublic)
+            }}
             onStartOver={handleStartOver}
           />
         )}
@@ -833,6 +886,23 @@ export default function App() {
         <AuthModal
           onClose={() => setShowAuth(false)}
           onSuccess={() => setShowAuth(false)}
+        />
+      )}
+
+      {/* ── Gallery page ── */}
+      {showGallery && (
+        <GalleryPage
+          user={user}
+          onClose={() => setShowGallery(false)}
+          onLoad={(row: DbCreation) => {
+            // Load a gallery creation into the viewer
+            if (row.session) {
+              setSession(row.session as unknown as SessionState)
+              setFlowMode(row.flow_mode as FlowMode)
+              setStep(4)
+              setShowGallery(false)
+            }
+          }}
         />
       )}
 

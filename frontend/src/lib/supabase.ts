@@ -12,28 +12,30 @@ export const supabase = (url && key) ? createClient(url, key) : null
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface DbCreation {
-  id:         string
-  user_id:    string
-  type:       'relief' | 'model3d'
-  flow_mode:  string
-  prompt:     string
-  thumbnail:  string | null
-  glb_url:    string | null
-  stl_url:    string | null
-  session:    Record<string, unknown> | null
-  created_at: string
+  id:           string
+  user_id:      string
+  type:         'relief' | 'model3d'
+  flow_mode:    string
+  prompt:       string
+  thumbnail:    string | null
+  glb_url:      string | null
+  stl_url:      string | null
+  session:      Record<string, unknown> | null
+  is_public:    boolean
+  published_at: string | null
+  created_at:   string
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Private creations ────────────────────────────────────────────────────────
 
-export async function saveCreation(creation: Omit<DbCreation, 'id' | 'user_id' | 'created_at'>) {
+export async function saveCreation(creation: Omit<DbCreation, 'id' | 'user_id' | 'created_at' | 'is_public' | 'published_at'>) {
   if (!supabase) return null
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
   const { data, error } = await supabase
     .from('creations')
-    .insert({ ...creation, user_id: user.id })
+    .insert({ ...creation, user_id: user.id, is_public: false })
     .select()
     .single()
 
@@ -47,7 +49,7 @@ export async function loadCreations(): Promise<DbCreation[]> {
     .from('creations')
     .select('*')
     .order('created_at', { ascending: false })
-    .limit(20)
+    .limit(50)
 
   if (error) { console.error('loadCreations failed:', error); return [] }
   return (data ?? []) as DbCreation[]
@@ -58,12 +60,46 @@ export async function deleteCreation(id: string) {
   await supabase.from('creations').delete().eq('id', id)
 }
 
+// ── Gallery (public creations) ────────────────────────────────────────────────
+
+export async function publishCreation(id: string): Promise<boolean> {
+  if (!supabase) return false
+  const { error } = await supabase
+    .from('creations')
+    .update({ is_public: true, published_at: new Date().toISOString() })
+    .eq('id', id)
+  if (error) { console.error('publishCreation failed:', error); return false }
+  return true
+}
+
+export async function unpublishCreation(id: string): Promise<boolean> {
+  if (!supabase) return false
+  const { error } = await supabase
+    .from('creations')
+    .update({ is_public: false, published_at: null })
+    .eq('id', id)
+  if (error) { console.error('unpublishCreation failed:', error); return false }
+  return true
+}
+
+export async function loadGallery(limit = 40): Promise<DbCreation[]> {
+  if (!supabase) return []
+  const { data, error } = await supabase
+    .from('creations')
+    .select('id, type, flow_mode, prompt, thumbnail, stl_url, published_at, created_at')
+    .eq('is_public', true)
+    .order('published_at', { ascending: false })
+    .limit(limit)
+
+  if (error) { console.error('loadGallery failed:', error); return [] }
+  return (data ?? []) as DbCreation[]
+}
+
 // ── Storage helpers ───────────────────────────────────────────────────────────
-// Upload a data-URL (base64) blob to Supabase Storage and return the public URL.
 
 export async function uploadDataUrl(
   dataUrl: string,
-  path: string,     // e.g. "thumbnails/abc123.png"
+  path: string,
   contentType = 'image/png',
 ): Promise<string | null> {
   if (!supabase) return null
