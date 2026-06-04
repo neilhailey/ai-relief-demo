@@ -6,17 +6,15 @@ Flow
 1. POST /task  → task_id  (fast, returns immediately)
 2. Poll GET /task/{id} until status == "success"  (30–120 s)
 3. Download GLB from output.model
-4. Download rendered preview image (optional)
-
-Note: we no longer convert GLB → STL on the server.
-The frontend loads the GLB directly using Three.js GLTFLoader,
-and the Tripo CDN URL is offered as a download link.
-This eliminates the trimesh dependency and its ~200 MB RAM spike
-that was causing OOM crashes on Render's free tier.
+4. Convert GLB → STL via subprocess (trimesh isolated so FastAPI never OOMs)
+5. Upload STL to Supabase Storage (permanent URL, survives Render restarts)
+6. Return rendered preview URL + Supabase STL URL
 """
 
 import asyncio
 import logging
+import os
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -62,9 +60,9 @@ async def finish_tripo_task(
     task_id: str,
     session_dir: Path,
     on_progress: Callable[[int, str], None] | None = None,
-) -> tuple[str | None, Path]:
+) -> tuple[str | None, Path, str | None]:
     """
-    Poll a Tripo task until it finishes, then download the GLB to disk.
+    Poll a Tripo task until done, download GLB, convert to STL, upload to Supabase.
 
     Parameters
     ----------
@@ -73,9 +71,7 @@ async def finish_tripo_task(
 
     Returns
     -------
-    (rendered_cdn_url | None, glb_path)
-        rendered_cdn_url is passed directly to the browser (<img> bypasses CORS).
-        glb_path is the local file; serve it via FastAPI which has CORS headers.
+    (rendered_cdn_url | None, stl_path, stl_supabase_url | None)
     """
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -140,12 +136,8 @@ async def finish_tripo_task(
             "the model may still be queued; try again shortly"
         )
 
-    # ── Download GLB to disk ──────────────────────────────────────────────────
-    # We cannot pass the Tripo CDN URL directly to the browser: Tripo's CDN
-    # has no Access-Control-Allow-Origin headers, so GLTFLoader (XHR) is
-    # blocked by CORS.  Download here and serve via FastAPI, which has the
-    # CORS middleware configured.  Fresh session → closes cleanly with no hang.
-    logger.info("Downloading GLB (~%s)…", model_url[:60])
+    # ── Download GLB ─────────────────────────────────────────────────────────
+    logger.info("Downloading GLB…")
     glb_path = session_dir / "model.glb"
     async with aiohttp.ClientSession() as dl:
         async with dl.get(model_url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
@@ -153,7 +145,55 @@ async def finish_tripo_task(
             glb_path.write_bytes(await resp.read())
     logger.info("GLB saved %d bytes → %s", glb_path.stat().st_size, glb_path)
 
-    # rendered_url is a signed CDN URL — browsers display <img> cross-origin
-    # without CORS so we can pass it directly (no download needed).
-    logger.info("Tripo task %s done  glb=%s  preview=%s", task_id, glb_path, rendered_url)
-    return rendered_url, glb_path
+    # ── Convert GLB → STL in a subprocess ────────────────────────────────────
+    # trimesh is only imported inside convert_glb.py (a subprocess), so the
+    # FastAPI process never accumulates trimesh's ~200 MB footprint.
+    stl_path = session_dir / "model.stl"
+    converter = Path(__file__).parent.parent / "convert_glb.py"
+    loop = asyncio.get_running_loop()
+
+    async def _run_conversion() -> None:
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, str(converter), str(glb_path), str(stl_path),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await asyncio.wait_for(proc.communicate(), timeout=180)
+        if proc.returncode != 0:
+            raise RuntimeError(f"GLB→STL conversion failed: {stderr.decode()[:300]}")
+        logger.info("STL written %d bytes → %s", stl_path.stat().st_size, stl_path)
+
+    await _run_conversion()
+
+    # ── Upload STL to Supabase Storage ────────────────────────────────────────
+    # Render's disk is ephemeral (files vanish on restart).  Uploading to
+    # Supabase Storage gives a permanent public URL for the user's creations.
+    stl_public_url = await _upload_stl_to_supabase(stl_path, session_dir.name)
+
+    logger.info("Tripo task %s done  stl=%s  preview=%s", task_id, stl_public_url or stl_path, rendered_url)
+    return rendered_url, stl_path, stl_public_url
+
+
+async def _upload_stl_to_supabase(stl_path: Path, session_id: str) -> str | None:
+    """Upload the STL file to Supabase Storage and return the public URL."""
+    sb_url = os.getenv("SUPABASE_URL", "")
+    sb_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not sb_url or not sb_key:
+        logger.warning("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — skipping upload")
+        return None
+
+    try:
+        from supabase import create_client
+        sb = create_client(sb_url, sb_key)
+        storage_path = f"stls/{session_id}/model.stl"
+        stl_bytes = stl_path.read_bytes()
+        sb.storage.from_("models").upload(
+            storage_path, stl_bytes,
+            file_options={"content-type": "model/stl", "upsert": "true"},
+        )
+        public = sb.storage.from_("models").get_public_url(storage_path)
+        logger.info("STL uploaded → %s", public)
+        return public
+    except Exception as exc:
+        logger.warning("Supabase STL upload failed: %s", exc)
+        return None

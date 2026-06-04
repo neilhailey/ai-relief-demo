@@ -1,17 +1,17 @@
 import { Suspense, lazy, useState, useRef } from 'react'
-import type { CameraPreset } from './GlbViewer'
+import type { CameraPreset } from './StlViewer'
 
-const GlbViewer = lazy(() => import('./GlbViewer').then(m => ({ default: m.GlbViewer })))
+const StlViewer = lazy(() => import('./StlViewer').then(m => ({ default: m.StlViewer })))
 
 interface Props {
   prompt:      string
-  glbUrl:      string
+  stlUrl:      string
   renderedUrl: string | undefined
   sessionId:   string
   onStartOver: () => void
 }
 
-export function Model3dResultStep({ prompt, glbUrl, renderedUrl, onStartOver }: Props) {
+export function Model3dResultStep({ prompt, stlUrl, renderedUrl, onStartOver }: Props) {
   const [activeView, setActiveView] = useState<CameraPreset>('iso')
   const [loaded,     setLoaded]     = useState(false)
   const [loadError,  setLoadError]  = useState<string | null>(null)
@@ -39,7 +39,7 @@ export function Model3dResultStep({ prompt, glbUrl, renderedUrl, onStartOver }: 
           "{prompt}"
         </div>
 
-        {/* Rendered preview image */}
+        {/* Rendered preview */}
         {renderedUrl && (
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.05em' }}>
@@ -68,11 +68,11 @@ export function Model3dResultStep({ prompt, glbUrl, renderedUrl, onStartOver }: 
 
         <div style={{ flex: 1 }} />
 
-        {/* Download */}
+        {/* Download STL */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <a
-            href={glbUrl}
-            download="model.glb"
+            href={stlUrl}
+            download="model.stl"
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '11px 14px',
@@ -82,12 +82,11 @@ export function Model3dResultStep({ prompt, glbUrl, renderedUrl, onStartOver }: 
               textDecoration: 'none', fontWeight: 600, fontSize: 13,
             }}
           >
-            <span>Download GLB</span>
-            <span style={{ fontSize: 10, opacity: 0.8 }}>Blender · Fusion · slicer ↓</span>
+            <span>Download STL</span>
+            <span style={{ fontSize: 10, opacity: 0.8 }}>CNC · print ↓</span>
           </a>
           <div style={{ fontSize: 10, color: 'var(--muted)', lineHeight: 1.5, marginTop: 2 }}>
-            GLB works in Blender, Fusion 360, PrusaSlicer, Bambu Studio, and most CAM software.
-            To get an STL, open the GLB in Blender and export → STL.
+            STL works with all CNC CAM software and 3D printer slicers.
           </div>
         </div>
       </div>
@@ -133,8 +132,9 @@ export function Model3dResultStep({ prompt, glbUrl, renderedUrl, onStartOver }: 
         </div>
 
         <Suspense fallback={null}>
-          <GlbViewer
-            url={glbUrl}
+          <StlViewer
+            url={stlUrl}
+            scaleZ={1.0}
             onReady={fn => { goToPresetRef.current = fn }}
             onLoadStart={() => {}}
             onLoadEnd={() => setLoaded(true)}
@@ -178,17 +178,14 @@ export function Model3dResultStep({ prompt, glbUrl, renderedUrl, onStartOver }: 
               fontSize: 12, color: 'var(--text-dim)', textAlign: 'center',
               maxWidth: 300, lineHeight: 1.6,
             }}>
-              The model link may have expired. Try generating a new one, or use the download button.
+              The model file may have expired. Generate a new one, or download the STL directly.
             </div>
             <button
               onClick={onStartOver}
               style={{
-                marginTop: 4,
-                padding: '9px 20px',
-                background: '#6366f1',
-                border: 'none', borderRadius: 8,
-                color: '#fff', fontSize: 13, fontWeight: 600,
-                cursor: 'pointer',
+                marginTop: 4, padding: '9px 20px',
+                background: '#6366f1', border: 'none', borderRadius: 8,
+                color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer',
               }}
             >
               ↺ Generate new model

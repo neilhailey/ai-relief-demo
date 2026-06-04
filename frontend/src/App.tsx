@@ -193,7 +193,8 @@ export default function App() {
           tripo_status: string
           progress:     number
           session_id:   string | null
-          glb_url:      string | null
+          stl_url:      string | null   // local Render path (ephemeral)
+          stl_data_url: string | null   // Supabase Storage URL (permanent)
           rendered_url: string | null
           error:        string | null
         }
@@ -217,11 +218,10 @@ export default function App() {
           : j
         )
 
-        if (job.status === 'success' && job.session_id && job.glb_url) {
-          // GLB URL: Tripo CDN URL (absolute) survives server restarts
-          const glbUrl = job.glb_url.startsWith('http')
-            ? job.glb_url
-            : `${API}${job.glb_url}`
+        if (job.status === 'success' && job.session_id && job.stl_url) {
+          // Prefer the permanent Supabase URL; fall back to ephemeral Render path
+          const stlUrl = job.stl_data_url
+            ?? (job.stl_url.startsWith('http') ? job.stl_url : `${API}${job.stl_url}`)
 
           const newSession: SessionState = {
             sessionId:      job.session_id,
@@ -230,8 +230,8 @@ export default function App() {
             images:         [],
             selectedIndex:  null,
             heightmapUrl:   null,
-            stlUrl:         null,
-            glbUrl,
+            stlUrl,
+            glbUrl:         null,
             renderedUrl:    job.rendered_url ?? null,
           }
           setBgJob(j => j?.jobId === jobId
@@ -639,10 +639,10 @@ export default function App() {
         )}
 
         {/* ── Step 4: 3D model ── */}
-        {step === 4 && flowMode === 'model3d' && session && session.glbUrl && (
+        {step === 4 && flowMode === 'model3d' && session && session.stlUrl && (
           <Model3dResultStep
             prompt={session.prompt}
-            glbUrl={session.glbUrl}
+            stlUrl={session.stlUrl}
             renderedUrl={session.renderedUrl ?? undefined}
             sessionId={session.sessionId}
             onStartOver={handleStartOver}
