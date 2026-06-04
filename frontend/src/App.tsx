@@ -1,6 +1,9 @@
 /// <reference types="vite/client" />
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { SessionState, Creation, BackgroundJob } from './types'
+import type { User } from '@supabase/supabase-js'
+import { supabase, saveCreation, loadCreations, uploadDataUrl } from './lib/supabase'
+import { AuthModal } from './components/AuthModal'
 import { StepIndicator, UPLOAD_LABELS, MODEL3D_LABELS } from './components/StepIndicator'
 import { PromptStep } from './components/PromptStep'
 import { UploadStep } from './components/UploadStep'
@@ -45,9 +48,62 @@ export default function App() {
   const [showPanel, setShowPanel] = useState(false)
   const [showGame,  setShowGame]  = useState(false)
 
+  // ── Auth ──────────────────────────────────────────────────────────────────
+  const [user,      setUser]      = useState<User | null>(null)
+  const [showAuth,  setShowAuth]  = useState(false)
+
+  useEffect(() => {
+    if (!supabase) return
+    // Restore session on load
+    supabase.auth.getUser().then(({ data }) => setUser(data.user ?? null))
+    // Listen for sign in / sign out
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_evt, session) => {
+      setUser(session?.user ?? null)
+      if (session?.user) {
+        // Reload DB creations when user signs in
+        loadCreations().then(rows => {
+          setCreations(rows.map(r => ({
+            id:       r.id,
+            type:     r.type,
+            prompt:   r.prompt,
+            flowMode: r.flow_mode as FlowMode,
+            thumbnail: r.thumbnail ?? null,
+            session:  (r.session ?? {}) as unknown as SessionState,
+          })))
+        })
+      } else {
+        setCreations([])
+      }
+    })
+    return () => subscription.unsubscribe()
+  }, [])
+
+  async function persistCreation(c: Creation) {
+    if (!user) return
+    const uid = Math.random().toString(36).slice(2, 8)
+    // Upload thumbnail to Supabase Storage if it's a data URL
+    let thumbUrl = c.thumbnail
+    if (thumbUrl && thumbUrl.startsWith('data:')) {
+      const ext = thumbUrl.startsWith('data:image/webp') ? 'webp' : 'png'
+      const ct  = ext === 'webp' ? 'image/webp' : 'image/png'
+      thumbUrl = await uploadDataUrl(thumbUrl, `thumbnails/${uid}.${ext}`, ct) ?? thumbUrl
+    }
+    await saveCreation({
+      type:      c.type,
+      flow_mode: c.flowMode,
+      prompt:    c.prompt,
+      thumbnail: thumbUrl,
+      glb_url:   c.session.glbUrl ?? null,
+      stl_url:   c.session.stlUrl ?? null,
+      session:   c.session as unknown as Record<string, unknown>,
+    })
+  }
+
   function addCreation(c: Omit<Creation, 'id'>) {
     const entry: Creation = { ...c, id: Math.random().toString(36).slice(2, 8) }
-    setCreations(prev => [entry, ...prev].slice(0, 5))
+    setCreations(prev => [entry, ...prev].slice(0, 20))
+    // Persist to DB in background if signed in
+    void persistCreation(entry)
   }
 
   function handleSelectCreation(id: string) {
@@ -306,6 +362,37 @@ export default function App() {
           }}>AI Relief</span>
         </div>
 
+        {/* Right side: auth + recent */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+
+          {/* Auth button */}
+          {supabase && (
+            user ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {user.email}
+                </span>
+                <button
+                  onClick={() => supabase?.auth.signOut()}
+                  style={{
+                    padding: '5px 11px', borderRadius: 20, cursor: 'pointer',
+                    background: 'var(--surface2)', border: '1px solid var(--border)',
+                    fontSize: 11, fontWeight: 600, color: 'var(--text-dim)',
+                  }}
+                >Sign out</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowAuth(true)}
+                style={{
+                  padding: '6px 14px', borderRadius: 20, cursor: 'pointer',
+                  background: 'var(--accent)', border: 'none',
+                  fontSize: 12, fontWeight: 700, color: '#fff',
+                }}
+              >Sign in</button>
+            )
+          )}
+
         {/* Recent creations button */}
         {creations.length > 0 && (
           <button
@@ -333,6 +420,7 @@ export default function App() {
             </span>
           </button>
         )}
+        </div>{/* end right side */}
       </header>
 
       {/* Step indicator — advance visually through 3D model steps during background job */}
@@ -737,6 +825,14 @@ export default function App() {
           creations={creations}
           onSelect={handleSelectCreation}
           onClose={() => setShowPanel(false)}
+        />
+      )}
+
+      {/* ── Auth modal ── */}
+      {showAuth && (
+        <AuthModal
+          onClose={() => setShowAuth(false)}
+          onSuccess={() => setShowAuth(false)}
         />
       )}
 
