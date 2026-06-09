@@ -208,7 +208,17 @@ export default function App() {
           }
           continue   // other transient errors — keep polling
         }
-        const job = await res.json() as {
+        // Read as text first so we can strip any base64 data URL before
+        // JSON.parse — a 1-5 MB base64 string in rendered_url freezes the
+        // JS thread and causes the blank screen.  The backend now uploads
+        // rendered thumbnails to Supabase and returns a small URL instead,
+        // but this guard protects against any in-flight old responses.
+        const rawText = await res.text()
+        const safeText = rawText.replace(
+          /"rendered_url"\s*:\s*"data:[^"]{100,}"/g,
+          '"rendered_url":null'
+        )
+        const job = JSON.parse(safeText) as {
           status:       string
           tripo_status: string
           progress:     number
