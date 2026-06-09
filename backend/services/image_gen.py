@@ -10,11 +10,16 @@ from PIL import Image, ImageFilter
 logger = logging.getLogger(__name__)
 
 # ── Visual render prompt (shown to user for selection) ──────────────────────
+# Framing prefix goes FIRST because gpt-image-1 weights early tokens most
+# heavily. Appending framing at the end (suffix) is routinely ignored.
+_FRAMING_PREFIX = (
+    "Wide shot, FULL BODY visible head-to-toe, generous empty space above "
+    "the head and below the feet, ZERO cropping of any limb or feature: "
+)
+
 _VISUAL_SUFFIX = (
     ", dramatic studio lighting, grayscale, white clay bas-relief sculpture "
-    "on a plain dark background, highly detailed, professional photography, "
-    "full subject completely in frame with generous padding on all sides, "
-    "no cropping, centered composition, entire figure visible from head to toe"
+    "on a plain dark background, highly detailed, professional photography"
 )
 
 # ── Heightmap prompt (used for STL generation) ──────────────────────────────
@@ -91,9 +96,13 @@ async def generate_images(prompt: str, session_dir: Path, session_id: str) -> li
     from openai import AsyncOpenAI
     client = AsyncOpenAI(api_key=api_key)
 
+    # Prefix forces the framing directive to the START of the prompt.
+    # gpt-image-1 weighs early tokens most heavily — appending framing at
+    # the end (suffix) is routinely ignored, hence persistent foot/head cropping.
+    framed = f"{_FRAMING_PREFIX}{prompt}"
     variants = [
-        f"{prompt}{_VISUAL_SUFFIX}, photorealistic render",
-        f"{prompt}{_VISUAL_SUFFIX}, detailed illustration style",
+        f"{framed}{_VISUAL_SUFFIX}, photorealistic render",
+        f"{framed}{_VISUAL_SUFFIX}, detailed illustration style",
     ]
 
     async def _gen(styled_prompt: str, idx: int) -> dict:
@@ -253,7 +262,8 @@ async def generate_heightmap(
     from openai import AsyncOpenAI
     client = AsyncOpenAI(api_key=api_key)
 
-    heightmap_prompt = _HEIGHTMAP_TEMPLATE.format(subject=prompt)
+    # Apply the same framing prefix so the heightmap subject isn't cropped either
+    heightmap_prompt = _FRAMING_PREFIX + _HEIGHTMAP_TEMPLATE.format(subject=prompt)
     logger.info("Generating heightmap for: %s …", prompt[:60])
 
     response = await client.images.generate(
