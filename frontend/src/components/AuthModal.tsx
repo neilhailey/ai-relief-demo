@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useLang } from '../contexts/LanguageContext'
 
 interface Props {
   onClose: () => void
@@ -7,6 +8,7 @@ interface Props {
 }
 
 export function AuthModal({ onClose, onSuccess }: Props) {
+  const { t } = useLang()
   const [mode,     setMode]     = useState<'signin' | 'signup'>('signin')
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
@@ -54,12 +56,10 @@ export function AuthModal({ onClose, onSuccess }: Props) {
         {/* Header */}
         <div style={{ marginBottom: 24 }}>
           <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>
-            {mode === 'signin' ? 'Sign in to WeCarver' : 'Create your account'}
+            {mode === 'signin' ? t.signInTitle : t.signUpTitle}
           </div>
           <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-            {mode === 'signin'
-              ? 'Sign in to save your models and access them anywhere.'
-              : 'Save your AI reliefs and 3D models permanently.'}
+            {mode === 'signin' ? t.signInSubtitle : t.signUpSubtitle}
           </div>
         </div>
 
@@ -69,18 +69,18 @@ export function AuthModal({ onClose, onSuccess }: Props) {
             background: 'rgba(5,150,105,.1)', border: '1px solid rgba(5,150,105,.3)',
             color: '#6ee7b7', fontSize: 14, textAlign: 'center', lineHeight: 1.6,
           }}>
-            ✓ Check your email to confirm your account, then sign in.
+            {t.checkEmail}
             <button
               onClick={() => { setMode('signin'); setDone(false) }}
               style={{ display: 'block', margin: '12px auto 0', background: 'none', border: 'none', color: '#6ee7b7', cursor: 'pointer', textDecoration: 'underline', fontSize: 13 }}
-            >Go to sign in</button>
+            >{t.goToSignIn}</button>
           </div>
         ) : (
           <form onSubmit={handleSubmit}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 16 }}>
               <input
                 type="email"
-                placeholder="Email address"
+                placeholder={t.emailAddress}
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 required
@@ -92,7 +92,7 @@ export function AuthModal({ onClose, onSuccess }: Props) {
               />
               <input
                 type="password"
-                placeholder="Password"
+                placeholder={t.password}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 required
@@ -126,7 +126,7 @@ export function AuthModal({ onClose, onSuccess }: Props) {
                 transition: 'opacity .2s',
               }}
             >
-              {loading ? '…' : mode === 'signin' ? 'Sign in' : 'Create account'}
+              {loading ? '…' : mode === 'signin' ? t.signInBtn : t.createAccountBtn}
             </button>
           </form>
         )}
@@ -134,12 +134,12 @@ export function AuthModal({ onClose, onSuccess }: Props) {
         {/* Toggle */}
         {!done && (
           <p style={{ marginTop: 20, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>
-            {mode === 'signin' ? "Don't have an account? " : 'Already have one? '}
+            {mode === 'signin' ? t.noAccount + ' ' : t.alreadyHaveOne + ' '}
             <button
               onClick={() => { setMode(m => m === 'signin' ? 'signup' : 'signin'); setError(null) }}
               style={{ background: 'none', border: 'none', color: 'var(--accent-glow)', cursor: 'pointer', fontSize: 13 }}
             >
-              {mode === 'signin' ? 'Sign up free' : 'Sign in'}
+              {mode === 'signin' ? t.signUpFree : t.signInBtn}
             </button>
           </p>
         )}

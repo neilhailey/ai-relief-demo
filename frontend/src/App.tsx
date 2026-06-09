@@ -7,7 +7,7 @@ import { AuthModal } from './components/AuthModal'
 import { GalleryPage } from './components/GalleryPage'
 import type { DbCreation } from './lib/supabase'
 import { useLang } from './contexts/LanguageContext'
-import { StepIndicator, UPLOAD_LABELS, MODEL3D_LABELS } from './components/StepIndicator'
+import { StepIndicator } from './components/StepIndicator'
 import { PromptStep } from './components/PromptStep'
 import { UploadStep } from './components/UploadStep'
 import { SelectStep, ImageOption } from './components/SelectStep'
@@ -484,11 +484,7 @@ export default function App() {
           <div style={{ flexShrink: 0, maxWidth: 900, width: '100%', margin: '0 auto' }}>
             <StepIndicator
               current={displayStep as Step}
-              labels={
-                flowMode === 'upload'  ? UPLOAD_LABELS  :
-                flowMode === 'model3d' ? MODEL3D_LABELS :
-                undefined
-              }
+              flowMode={flowMode}
             />
           </div>
         )
@@ -520,7 +516,7 @@ export default function App() {
             return (
               <FlappyBird
                 jobProgress={reliefRunning ? -1 : (bgJob?.progress ?? 0)}
-                statusText={reliefRunning ? '◈  Generating 3D relief…' : undefined}
+                statusText={reliefRunning ? `◈  ${t.generatingRelief}` : undefined}
                 onClose={() => setShowGame(false)}
               />
             )
@@ -713,11 +709,11 @@ export default function App() {
           display: 'flex', justifyContent: 'center', gap: 20,
           flexShrink: 0,
         }}>
-          <span>Relief: gpt-image-1 via OpenAI</span>
+          <span>{t.footerRelief}</span>
           <span>·</span>
-          <span>3D Model: Tripo3D v2.5</span>
+          <span>{t.footer3d}</span>
           <span>·</span>
-          <span>Upload: your image → AI enhance → relief</span>
+          <span>{t.footerUpload}</span>
         </footer>
       )}
 
@@ -756,12 +752,12 @@ export default function App() {
                   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                 }}>
                   {bgJob.status === 'running' && (
-                    bgJob.tripoStatus === 'queued'   ? 'Queued in Tripo…' :
-                    bgJob.tripoStatus === 'success'  ? 'Converting mesh…' :
-                    `Generating 3D model… ${bgJob.progress}%`
+                    bgJob.tripoStatus === 'queued'   ? t.queuedTripo :
+                    bgJob.tripoStatus === 'success'  ? t.convertingMesh :
+                    t.generatingPct(bgJob.progress)
                   )}
-                  {bgJob.status === 'done'    && '3D model ready!'}
-                  {bgJob.status === 'failed'  && '3D model failed'}
+                  {bgJob.status === 'done'    && t.modelReady}
+                  {bgJob.status === 'failed'  && t.generationFailed}
                 </div>
                 <div style={{
                   fontSize: 10, color: 'var(--muted)', marginTop: 1,
@@ -778,7 +774,7 @@ export default function App() {
               {bgJob.status === 'running' && (
                 <button
                   onClick={() => setShowGame(s => !s)}
-                  title="Play while you wait"
+                  title={t.playWhileWait}
                   style={{
                     padding: '5px 10px',
                     background: showGame ? 'rgba(99,102,241,.5)' : 'rgba(99,102,241,.25)',
@@ -790,7 +786,7 @@ export default function App() {
                   }}
                 >
                   <span style={{ fontSize: 14 }}>🎮</span>
-                  <span>Play</span>
+                  <span>{t.playWhileWait}</span>
                 </button>
               )}
               {bgJob.status === 'done' && (
@@ -804,7 +800,7 @@ export default function App() {
                     fontSize: 11, fontWeight: 700, color: 'var(--green)',
                   }}
                 >
-                  View →
+                  {t.viewModel}
                 </button>
               )}
               <button
@@ -853,7 +849,7 @@ export default function App() {
             animation: 'spin 0.8s linear infinite', display: 'inline-block',
           }} />
           <span style={{ fontSize: 12, fontWeight: 600, color: '#fdba74', whiteSpace: 'nowrap' }}>
-            Generating 3D relief…
+            {t.generatingRelief}
           </span>
           <button
             onClick={() => setShowGame(true)}
@@ -867,7 +863,7 @@ export default function App() {
             }}
           >
             <span style={{ fontSize: 14 }}>🎮</span>
-            <span>Play while you wait</span>
+            <span>{t.playWhileWait}</span>
           </button>
         </div>
       )}

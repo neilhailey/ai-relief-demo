@@ -1,4 +1,5 @@
 import { useState, KeyboardEvent } from 'react'
+import { useLang } from '../contexts/LanguageContext'
 
 const EXAMPLES = [
   'Viking warrior bust',
@@ -44,6 +45,7 @@ interface Props {
 }
 
 export function Model3dPromptStep({ onGenerate, loading, onSwitchToAI }: Props) {
+  const { t } = useLang()
   const [prompt,   setPrompt]   = useState('')
   const [examples] = useState<string[]>(() => pickRandom(7))
 
@@ -63,11 +65,10 @@ export function Model3dPromptStep({ onGenerate, loading, onSwitchToAI }: Props) 
       {/* Hero */}
       <div style={{ textAlign: 'center' }}>
         <h1 style={{ fontSize: 38, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 10 }}>
-          Generate a 3D object
+          {t.generate3dTitle}
         </h1>
         <p style={{ fontSize: 15, color: 'var(--text-dim)', maxWidth: 500 }}>
-          Describe any object — AI builds a complete 3D mesh you can carve on a
-          rotary CNC, 4th-axis setup, or send straight to a 3D printer.
+          {t.generate3dHint}
         </p>
       </div>
 
@@ -103,13 +104,13 @@ export function Model3dPromptStep({ onGenerate, loading, onSwitchToAI }: Props) 
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}
         >
-          {loading ? <><Spin3d /> Submitting…</> : '✦  Generate 3D Model'}
+          {loading ? <><Spin3d /> Submitting…</> : t.generate3dBtn}
         </button>
       </div>
 
       {/* Example chips */}
       <div style={{ textAlign: 'center', maxWidth: 580 }}>
-        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>Try an example:</p>
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>{t.tryExample}</p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
           {examples.map(ex => (
             <button
@@ -148,14 +149,12 @@ export function Model3dPromptStep({ onGenerate, loading, onSwitchToAI }: Props) 
         fontSize: 12, color: 'var(--text-dim)', lineHeight: 1.6,
         textAlign: 'center',
       }}>
-        <strong style={{ color: '#a5b4fc' }}>Full 3D mesh</strong> — outputs GLB (textures + materials) and STL
-        (CNC / printing). Best with a rotary axis or 4-axis CNC.
-        For flat-panel relief carving, use the AI Relief flow instead.
+        <strong style={{ color: '#a5b4fc' }}>{t.full3dMeshNote}</strong> — {t.full3dMeshDesc}
       </div>
 
       {/* Switch link */}
       <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
-        Want a flat bas-relief instead?{' '}
+        {t.wantRelief}{' '}
         <button
           onClick={onSwitchToAI}
           disabled={loading}
@@ -166,7 +165,7 @@ export function Model3dPromptStep({ onGenerate, loading, onSwitchToAI }: Props) 
             textDecoration: 'underline',
           }}
         >
-          Switch to AI Relief →
+          {t.switchToRelief}
         </button>
       </div>
 

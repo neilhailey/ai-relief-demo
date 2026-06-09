@@ -1,32 +1,22 @@
+import { useLang } from '../contexts/LanguageContext'
+
 type Step = 1 | 2 | 3 | 4
 
-const AI_LABELS: Record<Step, string> = {
-  1: 'Describe',
-  2: 'Choose',
-  3: 'Preview',
-  4: 'Relief',
-}
-
-export const UPLOAD_LABELS: Record<Step, string> = {
-  1: 'Upload',
-  2: 'Enhance',
-  3: 'Preview',
-  4: 'Relief',
-}
-
-export const MODEL3D_LABELS: Record<Step, string> = {
-  1: 'Describe',
-  2: 'Generate',
-  3: 'Convert',
-  4: 'Preview',
-}
-
 interface Props {
-  current: Step
-  labels?: Record<Step, string>
+  current:   Step
+  flowMode?: 'ai' | 'upload' | 'model3d'
 }
 
-export function StepIndicator({ current, labels = AI_LABELS }: Props) {
+export function StepIndicator({ current, flowMode = 'ai' }: Props) {
+  const { t } = useLang()
+
+  const labels: Record<'ai' | 'upload' | 'model3d', Record<Step, string>> = {
+    ai:      { 1: t.stepDescribe, 2: t.stepChoose,   3: t.stepPreview, 4: t.stepRelief  },
+    upload:  { 1: t.stepDescribe, 2: t.stepGenerate,  3: t.stepPreview, 4: t.stepRelief  },
+    model3d: { 1: t.stepDescribe, 2: t.stepGenerate,  3: t.stepConvert, 4: t.stepPreview },
+  }
+  const lbls = labels[flowMode]
+
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 0,
@@ -61,7 +51,7 @@ export function StepIndicator({ current, labels = AI_LABELS }: Props) {
               }}>
                 {done ? '✓' : n}
               </span>
-              <span style={{ fontSize: 11, fontWeight: 500, color }}>{labels[n]}</span>
+              <span style={{ fontSize: 11, fontWeight: 500, color }}>{lbls[n]}</span>
             </div>
           </div>
         )

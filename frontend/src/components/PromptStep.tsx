@@ -1,5 +1,6 @@
 import { useState, KeyboardEvent } from 'react'
 import { ImageGenLoading } from './LoadingVibes'
+import { useLang } from '../contexts/LanguageContext'
 
 const ALL_EXAMPLES = [
   // Wildlife
@@ -128,6 +129,7 @@ interface Props {
 }
 
 export function PromptStep({ onGenerate, loading, onSwitchToUpload }: Props) {
+  const { t } = useLang()
   const [prompt,   setPrompt]   = useState('')
   // Lazy initializer — runs once on mount, gives a fresh random set each page load
   const [examples] = useState<string[]>(() => pickRandom(7))
@@ -160,11 +162,10 @@ export function PromptStep({ onGenerate, loading, onSwitchToUpload }: Props) {
       {/* Hero text */}
       <div style={{ textAlign: 'center' }}>
         <h1 style={{ fontSize: 38, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 10 }}>
-          Describe your design
+          {t.describeDesign}
         </h1>
         <p style={{ fontSize: 15, color: 'var(--text-dim)', maxWidth: 480 }}>
-          Type any idea — we'll generate two images and turn your favourite into a
-          carveable 3D relief STL, ready for your CNC machine.
+          {t.describeHint}
         </p>
       </div>
 
@@ -200,19 +201,13 @@ export function PromptStep({ onGenerate, loading, onSwitchToUpload }: Props) {
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}
         >
-          {loading ? (
-            <>
-              <Spinner /> Generating images…
-            </>
-          ) : (
-            '✦  Generate Images'
-          )}
+          {loading ? <><Spinner /> Generating…</> : t.generateImages}
         </button>
       </div>
 
       {/* Example chips */}
       <div style={{ textAlign: 'center', maxWidth: 580 }}>
-        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>Try an example:</p>
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>{t.tryExample}</p>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center' }}>
           {examples.map(ex => (
             <button
@@ -243,7 +238,7 @@ export function PromptStep({ onGenerate, loading, onSwitchToUpload }: Props) {
 
       {/* Upload link */}
       <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
-        Already have an image?{' '}
+        {t.alreadyHaveImage}{' '}
         <button
           onClick={onSwitchToUpload}
           disabled={loading}
@@ -254,7 +249,7 @@ export function PromptStep({ onGenerate, loading, onSwitchToUpload }: Props) {
             textDecoration: 'underline',
           }}
         >
-          Upload your own →
+          {t.uploadYourOwn}
         </button>
       </div>
 

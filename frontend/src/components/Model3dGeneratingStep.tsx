@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useLang } from '../contexts/LanguageContext'
 
 interface Props {
   prompt:      string
@@ -14,6 +15,7 @@ interface Props {
 export function Model3dGeneratingStep({
   prompt, status, tripoStatus, progress, error, onView, onPlayGame, onCancel,
 }: Props) {
+  const { t } = useLang()
 
   // Animated ellipsis for queued / converting states
   const [dots, setDots]           = useState('.')
@@ -43,11 +45,11 @@ export function Model3dGeneratingStep({
   const isStuck = tripoStatus === 'success' && convertingSecs > 90   // >90 s converting = warn
 
   const statusLabel =
-    isDone                    ? '3D model is ready!' :
-    isFailed                  ? 'Generation failed'  :
-    tripoStatus === 'queued'  ? `Queued in Tripo${dots}` :
-    tripoStatus === 'success' ? (isStuck ? 'Taking longer than expected…' : `Finalising model${dots}`) :
-    `Generating 3D model… ${progress}%`
+    isDone                    ? t.modelReady :
+    isFailed                  ? t.generationFailed :
+    tripoStatus === 'queued'  ? `${t.queuedTripo}${dots}` :
+    tripoStatus === 'success' ? (isStuck ? t.takingLonger : `${t.finalising}${dots}`) :
+    t.generatingPct(progress)
 
   // 0–100 fill for the determinate bar; 0 means use shimmer
   const barPct =
@@ -69,9 +71,9 @@ export function Model3dGeneratingStep({
           fontSize: 30, fontWeight: 700, letterSpacing: '-.5px', marginBottom: 14,
           color: isDone ? '#4ade80' : isFailed ? '#f87171' : '#a5b4fc',
         }}>
-          {isDone   && '✓ Your 3D model is ready!'}
-          {isFailed && '⚠ Generation failed'}
-          {isRunning && '✦ Generating your 3D model'}
+          {isDone   && t.modelReady}
+          {isFailed && t.generationFailed}
+          {isRunning && t.generatingTitle}
         </div>
 
         {/* Prompt echo */}
@@ -154,10 +156,10 @@ export function Model3dGeneratingStep({
           <span style={{ fontSize: 36, lineHeight: 1 }}>🎮</span>
           <div style={{ textAlign: 'left', flex: 1 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: '#e0e7ff', marginBottom: 3 }}>
-              Play Flappy Bird while you wait
+              {t.playFlappy}
             </div>
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-              We'll show you when the model is ready
+              {t.playFlappyHint}
             </div>
           </div>
           <span style={{ color: '#818cf8', fontSize: 20 }}>→</span>
@@ -176,7 +178,7 @@ export function Model3dGeneratingStep({
             boxShadow: '0 4px 20px rgba(34,197,94,.3)',
           }}
         >
-          View 3D Model →
+          {t.viewModel}
         </button>
       )}
 
@@ -192,7 +194,7 @@ export function Model3dGeneratingStep({
             fontSize: 14, fontWeight: 600, color: '#a5b4fc',
           }}
         >
-          Try again
+          {t.tryAgain}
         </button>
       )}
 
@@ -205,8 +207,7 @@ export function Model3dGeneratingStep({
           borderRadius: 8,
           fontSize: 12, color: '#fdba74', textAlign: 'center', lineHeight: 1.6,
         }}>
-          The server is taking longer than usual to finalise.<br />
-          You can wait a bit more, or cancel and try again — generation should be faster next time.
+          {t.stuckHint}
         </div>
       )}
 
@@ -220,7 +221,7 @@ export function Model3dGeneratingStep({
             cursor: 'pointer', textDecoration: 'underline',
           }}
         >
-          {isFailed ? 'Start over' : 'Cancel and start over'}
+          {isFailed ? t.startOver : t.cancelStartOver}
         </button>
       )}
     </div>

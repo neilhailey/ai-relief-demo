@@ -1,6 +1,7 @@
 import { Suspense, lazy, useState, useCallback, useRef } from 'react'
 import type { CameraPreset } from './StlViewer'
 import { ModelBuildingOverlay } from './LoadingVibes'
+import { useLang } from '../contexts/LanguageContext'
 
 const StlViewer = lazy(() => import('./StlViewer').then(m => ({ default: m.StlViewer })))
 
@@ -18,17 +19,18 @@ export interface SliderParams {
   scale_z: number
   detail_enhance: number
   replace_below: number
-  draft_angle: number   // degrees 0–45; match to V-bit half-angle
+  draft_angle: number
 }
 
 export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageUrl, onStartOver, onUpdateStl }: Props) {
-  const [scaleZ,        setScaleZ]        = useState(100)   // 10–300 displayed as %
-  const [detailEnhance, setDetailEnhance] = useState(25)    // 0–100 displayed as %
-  const [replaceBelow,  setReplaceBelow]  = useState(5)     // 0–50 displayed as %
-  const [draftAngle,    setDraftAngle]    = useState(10)    // 0–45 displayed as °
+  const { t } = useLang()
+  const [scaleZ,        setScaleZ]        = useState(100)
+  const [detailEnhance, setDetailEnhance] = useState(25)
+  const [replaceBelow,  setReplaceBelow]  = useState(5)
+  const [draftAngle,    setDraftAngle]    = useState(10)
   const [currentStlUrl, setCurrentStlUrl] = useState(initialStlUrl)
   const [updating,      setUpdating]      = useState(false)
-  const [modelLoading,  setModelLoading]  = useState(true)  // overlay until first STL loads
+  const [modelLoading,  setModelLoading]  = useState(true)
   const [activeView,    setActiveView]    = useState<CameraPreset>('iso')
   const debounceRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
   const goToPresetRef = useRef<((p: CameraPreset) => void) | null>(null)
@@ -39,10 +41,10 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
       setUpdating(true)
       try {
         const newUrl = await onUpdateStl({
-          scale_z:        1.0,          // geometry always full-height; mesh.scale.z handles visual scaling
+          scale_z:        1.0,
           detail_enhance: de / 100,
           replace_below:  rb / 100,
-          draft_angle:    da,           // sent as degrees
+          draft_angle:    da,
         })
         setCurrentStlUrl(newUrl + `?t=${Date.now()}`)
       } catch (err) {
@@ -53,12 +55,7 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
     }, 600)
   }, [onUpdateStl])
 
-  // Scale Z is applied instantly as a Three.js transform — no STL rebuild needed
-  // for the live preview. We still queue a background rebuild so the downloaded
-  // STL has the correct scale baked into the geometry.
   function handleScaleZ(v: number)  { setScaleZ(v);        triggerUpdate(v, detailEnhance, replaceBelow, draftAngle) }
-
-  // These change actual mesh geometry — require a rebuild.
   function handleDetail(v: number)  { setDetailEnhance(v); triggerUpdate(scaleZ, v, replaceBelow, draftAngle)        }
   function handleReplace(v: number) { setReplaceBelow(v);  triggerUpdate(scaleZ, detailEnhance, v, draftAngle)       }
   function handleDraft(v: number)   { setDraftAngle(v);    triggerUpdate(scaleZ, detailEnhance, replaceBelow, v)     }
@@ -74,57 +71,49 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
       {/* ── Left panel: controls ──────────────────────────────────────────── */}
       <div style={{
         width: 260, flexShrink: 0,
-        background: 'var(--surface)',
-        borderRight: '1px solid var(--border-sub)',
+        background: 'var(--surface)', borderRight: '1px solid var(--border-sub)',
         display: 'flex', flexDirection: 'column',
-        padding: '16px 14px',
-        overflowY: 'auto',
+        padding: '16px 14px', overflowY: 'auto',
       }}>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, fontStyle: 'italic' }}>
           "{prompt}"
         </div>
 
         <Slider
-          label="Scale Z"
-          value={scaleZ}
-          min={10} max={300} step={5}
+          label={t.sliderScaleZ}
+          value={scaleZ} min={10} max={300} step={5}
           display={v => `${v}%`}
           onChange={handleScaleZ}
-          disabled={false}  // instant — always interactive
+          disabled={false}
         />
         <Slider
-          label="Detail Enhancement"
-          value={detailEnhance}
-          min={0} max={100} step={5}
+          label={t.sliderDetail}
+          value={detailEnhance} min={0} max={100} step={5}
           display={v => `${v}%`}
           onChange={handleDetail}
           disabled={updating}
         />
         <Slider
-          label="Replace Below"
-          value={replaceBelow}
-          min={0} max={50} step={2}
+          label={t.sliderReplace}
+          value={replaceBelow} min={0} max={50} step={2}
           display={v => `${v}%`}
           onChange={handleReplace}
           disabled={updating}
         />
         <Slider
-          label="V-Bit Draft Angle"
-          value={draftAngle}
-          min={0} max={45} step={1}
-          display={v => v === 0 ? 'off' : `${v}°`}
+          label={t.sliderDraft}
+          value={draftAngle} min={0} max={45} step={1}
+          display={v => v === 0 ? t.draftOff : `${v}°`}
           onChange={handleDraft}
           disabled={updating}
-          hint="Match to your bit's half-angle (60° bit → 30°)"
+          hint={t.draftHint}
         />
 
         <div style={{ height: 1, background: 'var(--border)', margin: '16px 0' }} />
 
-        {/* Collapsible stubs matching EasyCreate */}
-        {['Edit Height Curve', 'Scale Heights Along Y-Axis', 'Scale Heights Along X-Axis'].map(label => (
+        {[t.editHeightCurve, t.scaleHeightsY, t.scaleHeightsX].map(label => (
           <div key={label} style={{
-            padding: '10px 0',
-            borderBottom: '1px solid var(--border)',
+            padding: '10px 0', borderBottom: '1px solid var(--border)',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             cursor: 'not-allowed', opacity: 0.5,
           }}>
@@ -138,11 +127,10 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
         {/* Heightmap preview */}
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.05em' }}>
-            Heightmap
+            {t.heightmapLabel}
           </div>
           <img
-            src={heightmapUrl}
-            alt="Heightmap"
+            src={heightmapUrl} alt={t.heightmapLabel}
             style={{ width: '100%', borderRadius: 6, border: '1px solid var(--border)' }}
           />
         </div>
@@ -163,7 +151,7 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
               pointerEvents: updating ? 'none' : 'auto',
             }}
           >
-            <span>Download STL</span>
+            <span>{t.downloadRelief}</span>
             <span style={{ fontSize: 15 }}>↓</span>
           </a>
           <a
@@ -172,15 +160,13 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '11px 14px',
-              background: 'var(--surface2)',
-              color: 'var(--text-dim)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius)',
+              background: 'var(--surface2)', color: 'var(--text-dim)',
+              border: '1px solid var(--border)', borderRadius: 'var(--radius)',
               textDecoration: 'none', fontWeight: 600, fontSize: 13,
               transition: 'background .2s',
             }}
           >
-            <span>Download Image</span>
+            <span>{t.downloadImage}</span>
             <span style={{ fontSize: 15 }}>↓</span>
           </a>
         </div>
@@ -189,45 +175,37 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
       {/* ── Right: 3D viewer ──────────────────────────────────────────────── */}
       <div style={{ flex: 1, position: 'relative', background: '#0a0d12' }}>
 
-        {/* Top bar */}
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0,
           padding: '10px 16px',
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           zIndex: 10, pointerEvents: 'none',
         }}>
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>drag to orbit · scroll to zoom</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{t.dragOrbit}</span>
           {updating && (
             <span style={{ fontSize: 12, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6, pointerEvents: 'none' }}>
-              <UpdateSpinner /> Updating STL…
+              <UpdateSpinner /> {t.updatingStl}
             </span>
           )}
         </div>
 
-        {/* View preset buttons (top-right) */}
-        <div style={{
-          position: 'absolute', top: 10, right: 14,
-          display: 'flex', gap: 5, zIndex: 10,
-        }}>
+        {/* View preset buttons */}
+        <div style={{ position: 'absolute', top: 10, right: 14, display: 'flex', gap: 5, zIndex: 10 }}>
           {(['iso', 'top', 'front', 'right'] as CameraPreset[]).map(p => (
             <button
               key={p}
               onClick={() => handleViewButton(p)}
               style={{
-                padding: '4px 10px',
-                fontSize: 11, fontWeight: 600,
+                padding: '4px 10px', fontSize: 11, fontWeight: 600,
                 textTransform: 'uppercase', letterSpacing: '.04em',
                 background: activeView === p ? 'var(--accent)' : 'rgba(0,0,0,.55)',
                 backdropFilter: 'blur(8px)',
                 border: `1px solid ${activeView === p ? 'var(--accent)' : 'var(--border)'}`,
                 borderRadius: 5,
                 color: activeView === p ? '#fff' : 'var(--text-dim)',
-                cursor: 'pointer',
-                transition: 'all .15s',
+                cursor: 'pointer', transition: 'all .15s',
               }}
-            >
-              {p}
-            </button>
+            >{p}</button>
           ))}
         </div>
 
@@ -236,31 +214,23 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
             url={currentStlUrl}
             scaleZ={scaleZ / 100}
             onReady={fn => { goToPresetRef.current = fn }}
-            onLoadStart={() => {/* keep current model visible — no overlay after first load */}}
+            onLoadStart={() => {}}
             onLoadEnd={() => setModelLoading(false)}
           />
         </Suspense>
 
-        {/* Loading overlay — rendered as a CSS sibling OUTSIDE the WebGL canvas
-            so it isn't obscured by the browser's compositor layer.
-            Key on modelLoading so timers/typewriter reset on each new build. */}
         {modelLoading && <ModelBuildingOverlay key={String(modelLoading)} />}
 
-        {/* Start over */}
         <button
           onClick={onStartOver}
           style={{
             position: 'absolute', bottom: 16, right: 16,
             padding: '7px 14px',
             background: 'rgba(0,0,0,.5)', backdropFilter: 'blur(8px)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius)',
-            color: 'var(--text-dim)', fontSize: 12, zIndex: 10,
-            cursor: 'pointer',
+            border: '1px solid var(--border)', borderRadius: 'var(--radius)',
+            color: 'var(--text-dim)', fontSize: 12, zIndex: 10, cursor: 'pointer',
           }}
-        >
-          ↺ Start over
-        </button>
+        >{t.startOverBtn}</button>
       </div>
     </div>
   )
@@ -283,24 +253,15 @@ interface SliderProps {
 function Slider({ label, value, min, max, step, display, onChange, disabled, hint }: SliderProps) {
   return (
     <div style={{ marginBottom: 18 }}>
-      <div style={{
-        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        marginBottom: hint ? 2 : 6,
-      }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: hint ? 2 : 6 }}>
         <span style={{ fontSize: 12, color: 'var(--text-dim)' }}>{label}</span>
         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>{display(value)}</span>
       </div>
-      {hint && (
-        <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4, fontStyle: 'italic' }}>
-          {hint}
-        </div>
-      )}
+      {hint && <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4, fontStyle: 'italic' }}>{hint}</div>}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <span style={{ fontSize: 10, color: 'var(--muted)' }}>—</span>
         <input
-          type="range"
-          min={min} max={max} step={step}
-          value={value}
+          type="range" min={min} max={max} step={step} value={value}
           disabled={disabled}
           onChange={e => onChange(Number(e.target.value))}
           style={{ flex: 1, accentColor: 'var(--accent)', cursor: disabled ? 'default' : 'pointer' }}

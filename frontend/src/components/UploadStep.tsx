@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, DragEvent, ChangeEvent } from 'react'
+import { useLang } from '../contexts/LanguageContext'
 
 const API = import.meta.env.VITE_API_URL ?? ''
 
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export function UploadStep({ onUpload, onSwitchToAI }: Props) {
+  const { t } = useLang()
   const [dragOver,  setDragOver]  = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error,     setError]     = useState<string | null>(null)
@@ -25,11 +27,11 @@ export function UploadStep({ onUpload, onSwitchToAI }: Props) {
 
   async function handleFile(file: File) {
     if (!file.type.match(/^image\//)) {
-      setError('Please upload an image file (JPEG, PNG, WEBP, etc.)')
+      setError(t.uploadErrType)
       return
     }
     if (file.size > 30 * 1024 * 1024) {
-      setError('File too large — max 30 MB')
+      setError(t.uploadErrSize)
       return
     }
     setError(null)
@@ -40,12 +42,12 @@ export function UploadStep({ onUpload, onSwitchToAI }: Props) {
       const res = await fetch(`${API}/api/upload`, { method: 'POST', body: form })
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: res.statusText }))
-        throw new Error(err.detail ?? 'Upload failed')
+        throw new Error(err.detail ?? t.uploadFailed)
       }
       const data = await res.json()
       onUpload(data.image_url, data.session_id, data.subject ?? '')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Upload failed')
+      setError(e instanceof Error ? e.message : t.uploadFailed)
       setUploading(false)
     }
   }
@@ -60,7 +62,7 @@ export function UploadStep({ onUpload, onSwitchToAI }: Props) {
   function onFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (file) handleFile(file)
-    e.target.value = ''   // allow re-selecting the same file
+    e.target.value = ''
   }
 
   return (
@@ -69,11 +71,10 @@ export function UploadStep({ onUpload, onSwitchToAI }: Props) {
       {/* Hero */}
       <div style={{ textAlign: 'center' }}>
         <h1 style={{ fontSize: 38, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 10 }}>
-          Upload your image
+          {t.uploadTitle}
         </h1>
         <p style={{ fontSize: 15, color: 'var(--text-dim)', maxWidth: 480 }}>
-          Upload any artwork, photo, or logo — we'll AI-enhance it for carving
-          and convert it to a 3D relief STL ready for your CNC.
+          {t.uploadSubtitle}
         </p>
       </div>
 
@@ -95,19 +96,13 @@ export function UploadStep({ onUpload, onSwitchToAI }: Props) {
           transition: 'all .2s',
         }}
       >
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          onChange={onFileChange}
-          style={{ display: 'none' }}
-        />
+        <input ref={inputRef} type="file" accept="image/*" onChange={onFileChange} style={{ display: 'none' }} />
 
         {uploading ? (
           <>
             <UploadSpinner />
-            <div style={{ fontSize: 14, color: 'var(--text-dim)' }}>Analysing your image…</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)' }}>usually a few seconds</div>
+            <div style={{ fontSize: 14, color: 'var(--text-dim)' }}>{t.uploadAnalysing}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>{t.uploadUsually}</div>
           </>
         ) : (
           <>
@@ -116,28 +111,21 @@ export function UploadStep({ onUpload, onSwitchToAI }: Props) {
               background: 'var(--accent)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: 26,
-            }}>
-              ↑
-            </div>
+            }}>↑</div>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>
-                Drop, Paste, or Click to upload
+                {t.uploadDropHint}
               </div>
-              <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
-                Supports JPEG, PNG, WEBP, GIF, BMP, TIFF · up to 30 MB
-              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>{t.uploadFormats}</div>
             </div>
           </>
         )}
       </div>
 
-      {error && (
-        <div style={{ color: '#fca5a5', fontSize: 13 }}>⚠ {error}</div>
-      )}
+      {error && <div style={{ color: '#fca5a5', fontSize: 13 }}>⚠ {error}</div>}
 
-      {/* Switch to AI flow */}
       <div style={{ fontSize: 13, color: 'var(--text-dim)' }}>
-        Prefer to let AI create an image?{' '}
+        {t.preferAi}{' '}
         <button
           onClick={onSwitchToAI}
           disabled={uploading}
@@ -148,10 +136,9 @@ export function UploadStep({ onUpload, onSwitchToAI }: Props) {
             textDecoration: 'underline',
           }}
         >
-          Generate it here
+          {t.generateHere}
         </button>
       </div>
-
     </div>
   )
 }
