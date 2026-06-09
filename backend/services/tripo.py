@@ -12,7 +12,6 @@ Flow
 """
 
 import asyncio
-import base64
 import logging
 import os
 import sys
@@ -171,26 +170,58 @@ async def finish_tripo_task(
     # Supabase Storage gives a permanent public URL for the user's creations.
     stl_public_url = await _upload_stl_to_supabase(stl_path, session_dir.name)
 
-    # ── Download rendered preview → base64 data URL ───────────────────────────
+    # ── Download rendered preview → upload to Supabase ───────────────────────
     # Tripo's rendered_image is an ephemeral CDN URL that expires within hours.
-    # Encoding it as a data URL lets the frontend upload it to Supabase Storage
-    # (persistCreation only uploads thumbnails that start with "data:"), so the
-    # thumbnail survives indefinitely instead of going 404.
-    rendered_data_url: str | None = None
-    if rendered_url:
-        try:
-            async with aiohttp.ClientSession() as dl:
-                async with dl.get(rendered_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                    resp.raise_for_status()
-                    ct       = resp.headers.get("Content-Type", "image/webp").split(";")[0].strip()
-                    img_data = await resp.read()
-            rendered_data_url = f"data:{ct};base64,{base64.b64encode(img_data).decode()}"
-            logger.info("Rendered preview downloaded %d bytes → data URL", len(img_data))
-        except Exception as exc:
-            logger.warning("Could not download rendered preview: %s", exc)
+    # We download it here and upload to Supabase Storage so the thumbnail URL
+    # is permanent.  Crucially we return a small URL string — NOT base64 — so
+    # the polling JSON response stays small and the browser never freezes.
+    permanent_thumb_url = await _upload_rendered_to_supabase(rendered_url, session_dir.name)
 
-    logger.info("Tripo task %s done  stl=%s  preview=%s", task_id, stl_public_url or stl_path, rendered_url)
-    return rendered_data_url or rendered_url, stl_path, stl_public_url
+    logger.info("Tripo task %s done  stl=%s  preview=%s", task_id, stl_public_url or stl_path, permanent_thumb_url or rendered_url)
+    return permanent_thumb_url or rendered_url, stl_path, stl_public_url
+
+
+async def _upload_rendered_to_supabase(rendered_url: str | None, session_id: str) -> str | None:
+    """Download Tripo's ephemeral rendered_image CDN URL and upload to Supabase Storage.
+
+    Returns a permanent public URL (small string), or None on any failure.
+    Never passes image bytes to the caller — keeping the polling JSON response
+    small is critical so the browser thread never freezes on a large payload.
+    """
+    if not rendered_url:
+        return None
+
+    sb_url = os.getenv("SUPABASE_URL", "")
+    sb_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    if not sb_url or not sb_key:
+        logger.warning("Supabase env not set — skipping rendered thumbnail upload, returning CDN URL")
+        return rendered_url   # fall back to ephemeral URL; at least it works briefly
+
+    try:
+        # 1. Download the rendered image
+        async with aiohttp.ClientSession() as dl:
+            async with dl.get(rendered_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                resp.raise_for_status()
+                ct       = resp.headers.get("Content-Type", "image/webp").split(";")[0].strip()
+                img_data = await resp.read()
+
+        ext = "webp" if "webp" in ct else "jpg"
+        logger.info("Rendered preview downloaded %d bytes (ct=%s)", len(img_data), ct)
+
+        # 2. Upload to Supabase Storage
+        from supabase import create_client
+        sb             = create_client(sb_url, sb_key)
+        storage_path   = f"thumbnails/{session_id}/rendered.{ext}"
+        sb.storage.from_("models").upload(
+            storage_path, img_data,
+            file_options={"content-type": ct, "upsert": "true"},
+        )
+        public = sb.storage.from_("models").get_public_url(storage_path)
+        logger.info("Rendered thumbnail uploaded → %s", public)
+        return public
+    except Exception as exc:
+        logger.warning("Could not upload rendered thumbnail (%s) — returning CDN URL", exc)
+        return rendered_url   # still better than nothing for the current session
 
 
 async def _upload_stl_to_supabase(stl_path: Path, session_id: str) -> str | None:
