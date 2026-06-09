@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useLang } from '../contexts/LanguageContext'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const W            = 380
@@ -53,16 +54,20 @@ interface Props {
 }
 
 export function FlappyBird({ jobProgress, statusText, onClose }: Props) {
+  const { t }       = useLang()
   const canvasRef   = useRef<HTMLCanvasElement>(null)
   const rafRef      = useRef(0)
   const gs          = useRef<GS>(freshState())
   const progressRef = useRef(jobProgress)
   const bestRef     = useRef(0)
+  // Keep translated strings accessible inside the single-mount game loop
+  const tRef        = useRef(t)
 
   const [best, setBest] = useState(0)
 
-  // Keep progress in sync without restarting the game loop
+  // Keep progress and translations in sync without restarting the game loop
   useEffect(() => { progressRef.current = jobProgress }, [jobProgress])
+  useEffect(() => { tRef.current = t }, [t])
 
   const flap = useCallback(() => {
     const s = gs.current
@@ -249,7 +254,7 @@ export function FlappyBird({ jobProgress, statusText, onClose }: Props) {
         ctx.fillStyle = '#c7d2fe'
         ctx.font = '10px system-ui, sans-serif'
         const label = statusText
-          ?? (progress < 0 ? '◈  Generating 3D relief…' : `◈  3D model generating… ${progress}%`)
+          ?? (progress < 0 ? tRef.current.flappyProgressRelief : tRef.current.flappyProgress3d(progress))
         ctx.fillText(label, W / 2, by + 11)
       }
 
@@ -261,21 +266,21 @@ export function FlappyBird({ jobProgress, statusText, onClose }: Props) {
         ctx.textAlign = 'center'
         ctx.fillStyle = '#f97316'
         ctx.font = 'bold 26px system-ui, sans-serif'
-        ctx.fillText('✦  Flappy Bird', W / 2, H / 2 - 68)
+        ctx.fillText(tRef.current.flappyTitle, W / 2, H / 2 - 68)
 
         ctx.fillStyle = 'rgba(255,255,255,.45)'
         ctx.font = '13px system-ui, sans-serif'
-        ctx.fillText('play while your 3D model generates!', W / 2, H / 2 - 40)
+        ctx.fillText(tRef.current.flappySubtitle, W / 2, H / 2 - 40)
 
         ctx.fillStyle = 'rgba(99,102,241,.95)'
         rr(ctx, W / 2 - 82, H / 2 - 22, 164, 46, 10); ctx.fill()
         ctx.fillStyle = '#fff'
         ctx.font = 'bold 17px system-ui, sans-serif'
-        ctx.fillText('▶  Start', W / 2, H / 2 + 7)
+        ctx.fillText(tRef.current.flappyStart, W / 2, H / 2 + 7)
 
         ctx.fillStyle = 'rgba(255,255,255,.28)'
         ctx.font = '11px system-ui, sans-serif'
-        ctx.fillText('Click · Space · Tap', W / 2, H / 2 + 42)
+        ctx.fillText(tRef.current.flappyTapHint, W / 2, H / 2 + 42)
 
       } else if (!s.alive) {
         ctx.fillStyle = 'rgba(0,0,0,.65)'
@@ -284,27 +289,27 @@ export function FlappyBird({ jobProgress, statusText, onClose }: Props) {
         ctx.textAlign = 'center'
         ctx.fillStyle = '#f87171'
         ctx.font = 'bold 32px system-ui, sans-serif'
-        ctx.fillText('GAME OVER', W / 2, H / 2 - 75)
+        ctx.fillText(tRef.current.flappyGameOver, W / 2, H / 2 - 75)
 
         ctx.fillStyle = '#e2e8f0'
         ctx.font = '20px system-ui, sans-serif'
-        ctx.fillText(`Score: ${s.score}`, W / 2, H / 2 - 38)
+        ctx.fillText(tRef.current.flappyScore(s.score), W / 2, H / 2 - 38)
 
         if (s.score > 0 && s.score === bestRef.current) {
           ctx.fillStyle = '#fbbf24'
           ctx.font = 'bold 14px system-ui, sans-serif'
-          ctx.fillText('★  New High Score!', W / 2, H / 2 - 10)
+          ctx.fillText(tRef.current.flappyNewHigh, W / 2, H / 2 - 10)
         } else if (bestRef.current > 0) {
           ctx.fillStyle = 'rgba(255,255,255,.35)'
           ctx.font = '12px system-ui, sans-serif'
-          ctx.fillText(`Best: ${bestRef.current}`, W / 2, H / 2 - 10)
+          ctx.fillText(tRef.current.flappyBest(bestRef.current), W / 2, H / 2 - 10)
         }
 
         ctx.fillStyle = 'rgba(99,102,241,.95)'
         rr(ctx, W / 2 - 82, H / 2 + 10, 164, 44, 10); ctx.fill()
         ctx.fillStyle = '#fff'
         ctx.font = 'bold 16px system-ui, sans-serif'
-        ctx.fillText('▶  Play Again', W / 2, H / 2 + 37)
+        ctx.fillText(tRef.current.flappyPlayAgain, W / 2, H / 2 + 37)
       }
 
       rafRef.current = requestAnimationFrame(loop)
@@ -336,11 +341,11 @@ export function FlappyBird({ jobProgress, statusText, onClose }: Props) {
             color: 'var(--text-dim)', fontSize: 12, cursor: 'pointer',
           }}
         >
-          ← Back
+          {t.back}
         </button>
         {best > 0 && (
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-            Best: <strong style={{ color: '#a5b4fc' }}>{best}</strong>
+            {t.flappyBestLabel} <strong style={{ color: '#a5b4fc' }}>{best}</strong>
           </span>
         )}
       </div>

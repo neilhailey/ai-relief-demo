@@ -395,7 +395,7 @@ export default function App() {
               transition: 'all .2s',
             }}
           >
-            🌐 Gallery
+            🌐 {t.gallery}
           </button>
 
           {/* Language toggle */}

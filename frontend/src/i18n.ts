@@ -186,6 +186,52 @@ export const TRANSLATIONS = {
     footerRelief:      'Relief: gpt-image-1 via OpenAI',
     footer3d:          '3D Model: Tripo3D v2.5',
     footerUpload:      'Upload: your image → AI enhance → relief',
+
+    // ── App header ────────────────────────────────────────────────────────
+    gallery:           'Gallery',
+
+    // ── Gallery page ──────────────────────────────────────────────────────
+    galleryExplore:    '🌐 Explore',
+    galleryMine:       '👤 My Models',
+    galleryCommunity:  'Community creations',
+    gallerySaved:      (n: number) => `${n} saved`,
+    galleryClickHint:  'Click any model to view · download STL to carve',
+    gallerySignIn:     'Sign in to see your saved models',
+    galleryNoPublic:   'No public models yet',
+    galleryNoMine:     'No models saved yet',
+    galleryBeFirst:    'Generate something and publish it to be the first!',
+    gallerySignInSave: 'Sign in and generate a model to save it here.',
+    galleryPublicBadge:'Public',
+    galleryNoPrompt:   '(no prompt)',
+    galleryPublished:  '✓ Published',
+    galleryPublishBtn: '↗ Publish',
+
+    // ── Publish button ────────────────────────────────────────────────────
+    publishSignIn:     'Sign in to publish to the Gallery',
+    publishedDone:     '✓ Published to Gallery!',
+    publishRemove:     '✓ Published · Remove from Gallery',
+    publishToGallery:  '↗ Publish to Gallery',
+
+    // ── Flappy Bird ───────────────────────────────────────────────────────
+    flappyTitle:          '✦  Flappy Bird',
+    flappySubtitle:       'play while your 3D model generates!',
+    flappyStart:          '▶  Start',
+    flappyTapHint:        'Click · Space · Tap',
+    flappyGameOver:       'GAME OVER',
+    flappyScore:          (n: number) => `Score: ${n}`,
+    flappyNewHigh:        '★  New High Score!',
+    flappyBest:           (n: number) => `Best: ${n}`,
+    flappyBestLabel:      'Best:',
+    flappyPlayAgain:      '▶  Play Again',
+    flappyProgress3d:     (p: number) => `◈  3D model generating… ${p}%`,
+    flappyProgressRelief: '◈  Generating 3D relief…',
+
+    // ── Loading vibes ─────────────────────────────────────────────────────
+    didYouKnow:        'DID YOU KNOW',
+    imgLoadUsually:    'usually 20–30 s',
+    hmLoadUsually:     'usually 30–50 s',
+    m3dLoadUsually:    'usually 45–90 s',
+    buildingRelief:    'Building your 3D relief',
   },
 
   zh: {
@@ -371,6 +417,52 @@ export const TRANSLATIONS = {
     footerRelief:      '浮雕：OpenAI gpt-image-1',
     footer3d:          '3D 模型：Tripo3D v2.5',
     footerUpload:      '上传：你的图片 → AI 增强 → 浮雕',
+
+    // ── App header ────────────────────────────────────────────────────────
+    gallery:           '展览馆',
+
+    // ── Gallery page ──────────────────────────────────────────────────────
+    galleryExplore:    '🌐 探索',
+    galleryMine:       '👤 我的模型',
+    galleryCommunity:  '社区创作',
+    gallerySaved:      (n: number) => `已保存 ${n} 个`,
+    galleryClickHint:  '点击任意模型预览 · 下载 STL 雕刻',
+    gallerySignIn:     '登录后查看已保存的模型',
+    galleryNoPublic:   '暂无公开模型',
+    galleryNoMine:     '暂无已保存模型',
+    galleryBeFirst:    '生成一个并发布，成为第一个！',
+    gallerySignInSave: '登录后生成模型即可保存。',
+    galleryPublicBadge:'已公开',
+    galleryNoPrompt:   '（无提示词）',
+    galleryPublished:  '✓ 已发布',
+    galleryPublishBtn: '↗ 发布',
+
+    // ── Publish button ────────────────────────────────────────────────────
+    publishSignIn:     '登录后可发布到展览馆',
+    publishedDone:     '✓ 已发布到展览馆！',
+    publishRemove:     '✓ 已发布 · 从展览馆移除',
+    publishToGallery:  '↗ 发布到展览馆',
+
+    // ── Flappy Bird ───────────────────────────────────────────────────────
+    flappyTitle:          '✦  像素飞鸟',
+    flappySubtitle:       '3D 模型生成中，边等边玩！',
+    flappyStart:          '▶  开始',
+    flappyTapHint:        '点击 · 空格 · 触屏',
+    flappyGameOver:       '游戏结束',
+    flappyScore:          (n: number) => `得分：${n}`,
+    flappyNewHigh:        '★  新纪录！',
+    flappyBest:           (n: number) => `最高分：${n}`,
+    flappyBestLabel:      '最高分：',
+    flappyPlayAgain:      '▶  再来一局',
+    flappyProgress3d:     (p: number) => `◈  3D 模型生成中… ${p}%`,
+    flappyProgressRelief: '◈  正在生成 3D 浮雕…',
+
+    // ── Loading vibes ─────────────────────────────────────────────────────
+    didYouKnow:        '你知道吗',
+    imgLoadUsually:    '通常 20–30 秒',
+    hmLoadUsually:     '通常 30–50 秒',
+    m3dLoadUsually:    '通常 45–90 秒',
+    buildingRelief:    '正在构建 3D 浮雕',
   },
 } as const
 

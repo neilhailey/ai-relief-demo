@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { loadGallery, loadCreations, publishCreation, unpublishCreation, type DbCreation } from '../lib/supabase'
 import type { User } from '@supabase/supabase-js'
+import { useLang } from '../contexts/LanguageContext'
 
 interface Props {
   user:    User | null
@@ -11,6 +12,7 @@ interface Props {
 type Tab = 'explore' | 'mine'
 
 export function GalleryPage({ user, onClose, onLoad }: Props) {
+  const { t } = useLang()
   const [tab,      setTab]      = useState<Tab>('explore')
   const [items,    setItems]    = useState<DbCreation[]>([])
   const [loading,  setLoading]  = useState(true)
@@ -44,7 +46,7 @@ export function GalleryPage({ user, onClose, onLoad }: Props) {
       color:      type === 'model3d' ? '#a5b4fc'             : '#fdba74',
       border:     `1px solid ${type === 'model3d' ? 'rgba(99,102,241,.3)' : 'rgba(249,115,22,.3)'}`,
     }}>
-      {type === 'model3d' ? '3D Model' : 'Relief'}
+      {type === 'model3d' ? t.model3d : t.relief}
     </span>
   )
 
@@ -68,36 +70,36 @@ export function GalleryPage({ user, onClose, onLoad }: Props) {
             fontSize: 20, cursor: 'pointer', lineHeight: 1, padding: '2px 4px',
           }}>←</button>
           <div style={{ display: 'flex', gap: 4, background: 'var(--surface2)', borderRadius: 10, padding: 4 }}>
-            {(['explore', 'mine'] as Tab[]).map(t => (
+            {(['explore', 'mine'] as Tab[]).map(tab_ => (
               <button
-                key={t}
-                onClick={() => setTab(t)}
+                key={tab_}
+                onClick={() => setTab(tab_)}
                 style={{
                   padding: '6px 16px', borderRadius: 7, border: 'none', cursor: 'pointer',
                   fontSize: 13, fontWeight: 600,
-                  background: tab === t ? 'var(--surface)' : 'transparent',
-                  color:      tab === t ? 'var(--text)'    : 'var(--muted)',
-                  boxShadow:  tab === t ? '0 1px 4px rgba(0,0,0,.3)' : 'none',
+                  background: tab === tab_ ? 'var(--surface)' : 'transparent',
+                  color:      tab === tab_ ? 'var(--text)'    : 'var(--muted)',
+                  boxShadow:  tab === tab_ ? '0 1px 4px rgba(0,0,0,.3)' : 'none',
                   transition: 'all .15s',
                 }}
               >
-                {t === 'explore' ? '🌐 Explore' : '👤 My Models'}
+                {tab_ === 'explore' ? t.galleryExplore : t.galleryMine}
               </button>
             ))}
           </div>
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-            {tab === 'explore' ? 'Community creations' : `${items.length} saved`}
+            {tab === 'explore' ? t.galleryCommunity : t.gallerySaved(items.length)}
           </span>
         </div>
 
         {tab === 'explore' && (
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-            Click any model to view · download STL to carve
+            {t.galleryClickHint}
           </div>
         )}
         {tab === 'mine' && !user && (
           <div style={{ fontSize: 12, color: '#fdba74' }}>
-            Sign in to see your saved models
+            {t.gallerySignIn}
           </div>
         )}
       </div>
@@ -118,12 +120,10 @@ export function GalleryPage({ user, onClose, onLoad }: Props) {
               {tab === 'explore' ? '🌐' : '🎨'}
             </div>
             <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
-              {tab === 'explore' ? 'No public models yet' : 'No models saved yet'}
+              {tab === 'explore' ? t.galleryNoPublic : t.galleryNoMine}
             </div>
             <div style={{ fontSize: 13 }}>
-              {tab === 'explore'
-                ? 'Generate something and publish it to be the first!'
-                : 'Sign in and generate a model to save it here.'}
+              {tab === 'explore' ? t.galleryBeFirst : t.gallerySignInSave}
             </div>
           </div>
         ) : (
@@ -182,7 +182,7 @@ export function GalleryPage({ user, onClose, onLoad }: Props) {
                       background: 'rgba(5,150,105,.25)', color: '#6ee7b7',
                       border: '1px solid rgba(5,150,105,.4)', fontWeight: 600,
                     }}>
-                      Public
+                      {t.galleryPublicBadge}
                     </div>
                   )}
                 </div>
@@ -194,7 +194,7 @@ export function GalleryPage({ user, onClose, onLoad }: Props) {
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     marginBottom: 4,
                   }}>
-                    {item.prompt || '(no prompt)'}
+                    {item.prompt || t.galleryNoPrompt}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10 }}>
                     {new Date(item.created_at).toLocaleDateString()}
@@ -233,7 +233,7 @@ export function GalleryPage({ user, onClose, onLoad }: Props) {
                           opacity: toggling === item.id ? 0.6 : 1,
                         }}
                       >
-                        {toggling === item.id ? '…' : item.is_public ? '✓ Published' : '↗ Publish'}
+                        {toggling === item.id ? '…' : item.is_public ? t.galleryPublished : t.galleryPublishBtn}
                       </button>
                     )}
                   </div>
