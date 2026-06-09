@@ -99,16 +99,26 @@ function CreationCard({
           <img
             src={creation.thumbnail} alt={creation.prompt}
             style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.9 }}
+            onError={e => {
+              // CDN URL expired or failed — hide img and show the emoji fallback
+              const img = e.currentTarget
+              img.style.display = 'none'
+              const fallback = img.parentElement?.querySelector('.thumb-fallback') as HTMLElement | null
+              if (fallback) fallback.style.display = 'flex'
+            }}
           />
-        ) : (
-          <div style={{
+        ) : null}
+        <div
+          className="thumb-fallback"
+          style={{
             position: 'absolute', inset: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            display: creation.thumbnail ? 'none' : 'flex',
+            alignItems: 'center', justifyContent: 'center',
             fontSize: 28, opacity: 0.3,
-          }}>
-            {is3d ? '◈' : '▦'}
-          </div>
-        )}
+          }}
+        >
+          {is3d ? '◈' : '▦'}
+        </div>
 
         <div style={{
           position: 'absolute', top: 7, left: 7, padding: '2px 8px',

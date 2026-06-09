@@ -12,6 +12,7 @@ Flow
 """
 
 import asyncio
+import base64
 import logging
 import os
 import sys
@@ -123,7 +124,7 @@ async def finish_tripo_task(
         if tripo_status == "success":
             output       = task.get("output", {})
             model_url    = output.get("pbr_model") or output.get("model")
-            rendered_url = output.get("rendered_image")
+            rendered_url = output.get("rendered_image")  # raw CDN URL — will be downloaded below
             if on_progress:
                 on_progress(100, "success")
             break
@@ -170,8 +171,26 @@ async def finish_tripo_task(
     # Supabase Storage gives a permanent public URL for the user's creations.
     stl_public_url = await _upload_stl_to_supabase(stl_path, session_dir.name)
 
+    # ── Download rendered preview → base64 data URL ───────────────────────────
+    # Tripo's rendered_image is an ephemeral CDN URL that expires within hours.
+    # Encoding it as a data URL lets the frontend upload it to Supabase Storage
+    # (persistCreation only uploads thumbnails that start with "data:"), so the
+    # thumbnail survives indefinitely instead of going 404.
+    rendered_data_url: str | None = None
+    if rendered_url:
+        try:
+            async with aiohttp.ClientSession() as dl:
+                async with dl.get(rendered_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    resp.raise_for_status()
+                    ct       = resp.headers.get("Content-Type", "image/webp").split(";")[0].strip()
+                    img_data = await resp.read()
+            rendered_data_url = f"data:{ct};base64,{base64.b64encode(img_data).decode()}"
+            logger.info("Rendered preview downloaded %d bytes → data URL", len(img_data))
+        except Exception as exc:
+            logger.warning("Could not download rendered preview: %s", exc)
+
     logger.info("Tripo task %s done  stl=%s  preview=%s", task_id, stl_public_url or stl_path, rendered_url)
-    return rendered_url, stl_path, stl_public_url
+    return rendered_data_url or rendered_url, stl_path, stl_public_url
 
 
 async def _upload_stl_to_supabase(stl_path: Path, session_id: str) -> str | None:

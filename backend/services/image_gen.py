@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 # ── Visual render prompt (shown to user for selection) ──────────────────────
 _VISUAL_SUFFIX = (
     ", dramatic studio lighting, grayscale, white clay bas-relief sculpture "
-    "on a plain dark background, highly detailed, professional photography"
+    "on a plain dark background, highly detailed, professional photography, "
+    "full subject completely in frame with generous padding on all sides, "
+    "no cropping, centered composition, entire figure visible from head to toe"
 )
 
 # ── Heightmap prompt (used for STL generation) ──────────────────────────────
@@ -22,11 +24,13 @@ _HEIGHTMAP_TEMPLATE = (
     "Grayscale CNC depth map of a bas-relief of: {subject}. "
     "Technical height map for CNC machining — not a photograph or artwork. "
     "STRICT RULES: "
-    "(1) Background is pure solid black #000000 — absolutely no grey, texture, or glow outside the subject. "
-    "(2) The {subject} shape is bright white-to-grey encoding elevation: "
+    "(1) The ENTIRE {subject} is fully contained within the image boundaries — no cropping, "
+    "complete subject with generous padding on all sides. "
+    "(2) Background is pure solid black #000000 — absolutely no grey, texture, or glow outside the subject. "
+    "(3) The {subject} shape is bright white-to-grey encoding elevation: "
     "highest raised features are brightest white, shallower areas are lighter grey. "
-    "(3) Smooth continuous gradients — no shadows, no cast shadows, no specular highlights. "
-    "(4) The boundary between subject and background is sharp — black background, white/grey subject. "
+    "(4) Smooth continuous gradients — no shadows, no cast shadows, no specular highlights. "
+    "(5) The boundary between subject and background is sharp — black background, white/grey subject. "
     "Output looks like a topographic heat-map: brightness encodes height above a flat black plane."
 )
 
@@ -52,6 +56,9 @@ async def enhance_prompt(original: str) -> str:
         "• Add specific sculptural detail: anatomy, texture, pose, composition, and depth cues\n"
         "• Emphasise crisp silhouette edges, bold surface relief, and features that read clearly when carved\n"
         "• Prefer iconic, recognisable poses that give strong depth variation across the surface\n"
+        "• CRITICAL: ensure the ENTIRE subject fits within the frame — include explicit framing cues like "
+        "'full body', 'head to toe', 'complete figure' for full-length subjects, or 'centered', 'full face' "
+        "for portraits. Never describe a composition that would be naturally cropped at the edges\n"
         "• Keep the result to 1–2 sentences, under 60 words\n"
         "• Do NOT add lighting, photography, or style words — those are appended automatically\n"
         "• Return ONLY the enhanced prompt text — no quotes, no explanation"
