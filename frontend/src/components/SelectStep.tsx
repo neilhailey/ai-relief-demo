@@ -98,7 +98,7 @@ export function SelectStep({ prompt, enhancedPrompt, images, onSelect, onRegener
                 position: 'relative',
               }}
             >
-              <div style={{ position: 'relative', paddingBottom: '100%', background: 'var(--surface)' }}>
+              <div style={{ position: 'relative', paddingBottom: '150%', background: 'var(--surface)' }}>
                 <img
                   src={img.url}
                   alt={t.variation(img.index + 1)}

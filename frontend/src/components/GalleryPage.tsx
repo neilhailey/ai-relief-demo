@@ -152,7 +152,7 @@ export function GalleryPage({ user, onClose, onLoad }: Props) {
               >
                 {/* Thumbnail */}
                 <div
-                  style={{ position: 'relative', width: '100%', paddingTop: '75%', background: '#0a0d12', cursor: 'pointer' }}
+                  style={{ position: 'relative', width: '100%', paddingTop: '150%', background: '#0a0d12', cursor: 'pointer' }}
                   onClick={() => onLoad(item)}
                 >
                   {item.thumbnail ? (

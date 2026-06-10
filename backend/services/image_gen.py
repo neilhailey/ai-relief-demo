@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 # Framing prefix goes FIRST because gpt-image-1 weights early tokens most
 # heavily. Appending framing at the end (suffix) is routinely ignored.
 _FRAMING_PREFIX = (
-    "Wide shot, FULL BODY visible head-to-toe, generous empty space above "
-    "the head and below the feet, ZERO cropping of any limb or feature: "
+    "Full-length portrait, entire subject visible from head to feet, "
+    "centered in frame with breathing room on all sides: "
 )
 
 _VISUAL_SUFFIX = (
@@ -111,7 +111,7 @@ async def generate_images(prompt: str, session_dir: Path, session_id: str) -> li
             model="gpt-image-1",
             prompt=styled_prompt,
             n=1,
-            size="1024x1024",
+            size="1024x1536",   # portrait — prevents tall subjects (humans/animals) being cropped
         )
         img = response.data[0]
         image_data = img.b64_json or ""
