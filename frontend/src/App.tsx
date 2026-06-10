@@ -9,6 +9,7 @@ import type { DbCreation } from './lib/supabase'
 import { useLang } from './contexts/LanguageContext'
 import { StepIndicator } from './components/StepIndicator'
 import { PromptStep } from './components/PromptStep'
+import type { Orientation } from './components/PromptStep'
 import { UploadStep } from './components/UploadStep'
 import { SelectStep, ImageOption } from './components/SelectStep'
 import { EnhanceStep } from './components/EnhanceStep'
@@ -43,7 +44,8 @@ export default function App() {
   const [flowMode,  setFlowMode]  = useState<FlowMode>('ai')
   const [loading,   setLoading]   = useState(false)
   const [error,     setError]     = useState<string | null>(null)
-  const [session,   setSession]   = useState<SessionState | null>(null)
+  const [session,     setSession]     = useState<SessionState | null>(null)
+  const [orientation, setOrientation] = useState<Orientation>('portrait')
 
   // ── Background 3D job + recent creations ─────────────────────────────────
   const [bgJob,      setBgJob]      = useState<BackgroundJob | null>(null)
@@ -136,7 +138,8 @@ export default function App() {
   }
 
   // ── AI flow: Step 1 → 2 ─────────────────────────────────────────────────
-  async function handleGenerate(prompt: string) {
+  async function handleGenerate(prompt: string, orient: Orientation = 'portrait') {
+    setOrientation(orient)
     setLoading(true); setError(null)
     try {
       const data = await apiFetch<{
@@ -144,7 +147,8 @@ export default function App() {
         images:          ImageOption[]
         original_prompt: string
         enhanced_prompt: string
-      }>('/api/generate', { prompt })
+        orientation:     Orientation
+      }>('/api/generate', { prompt, orientation: orient })
       setSession({
         sessionId:      data.session_id,
         prompt:         data.original_prompt,
@@ -322,6 +326,7 @@ export default function App() {
           session_id:     session.sessionId,
           image_index:    session.selectedIndex,
           prompt:         session.enhancedPrompt,
+          orientation,
           replace_below:  removeBg ? 0.08 : 0.0,
           detail_enhance: 0.25,
           scale_z:        1.0,
@@ -359,7 +364,7 @@ export default function App() {
   }
 
   function handleRegenerate() {
-    if (session) handleGenerate(session.prompt)
+    if (session) handleGenerate(session.prompt, orientation)
   }
 
   function handleStartOver() {
@@ -656,6 +661,7 @@ export default function App() {
             onSelect={handleSelectImage}
             onRegenerate={handleRegenerate}
             loading={loading}
+            orientation={orientation}
           />
         )}
         {step === 2 && flowMode === 'upload' && session && (

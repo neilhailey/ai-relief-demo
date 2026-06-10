@@ -35,6 +35,12 @@ export const TRANSLATIONS = {
     alreadyHaveImage:  'Already have an image?',
     uploadYourOwn:     'Upload your own →',
 
+    // ── Orientation picker ────────────────────────────────────────────────
+    orientationLabel:   'Carving shape:',
+    orientSquare:       'Square',
+    orientPortrait:     'Portrait',
+    orientLandscape:    'Landscape',
+
     // ── Upload step ───────────────────────────────────────────────────────
     uploadTitle:       'Upload your image',
     uploadSubtitle:    "Upload any artwork, photo, or logo — we'll AI-enhance it for carving and convert it to a 3D relief STL ready for your CNC.",
@@ -232,6 +238,10 @@ export const TRANSLATIONS = {
     hmLoadUsually:     'usually 30–50 s',
     m3dLoadUsually:    'usually 45–90 s',
     buildingRelief:    'Building your 3D relief',
+
+    // ── Prompt step placeholders ──────────────────────────────────────────
+    promptPlaceholder:  'e.g. Celtic knot with intricate interlacing patterns…',
+    model3dPlaceholder: 'e.g. Viking warrior bust with braided beard…',
   },
 
   zh: {
@@ -265,6 +275,12 @@ export const TRANSLATIONS = {
     tryExample:        '试试这些示例：',
     alreadyHaveImage:  '已有图片？',
     uploadYourOwn:     '上传你的图片 →',
+
+    // ── Orientation picker ────────────────────────────────────────────────
+    orientationLabel:   '雕刻比例：',
+    orientSquare:       '正方形',
+    orientPortrait:     '竖向',
+    orientLandscape:    '横向',
 
     // ── Upload step ───────────────────────────────────────────────────────
     uploadTitle:       '上传你的图片',
@@ -463,6 +479,10 @@ export const TRANSLATIONS = {
     hmLoadUsually:     '通常 30–50 秒',
     m3dLoadUsually:    '通常 45–90 秒',
     buildingRelief:    '正在构建 3D 浮雕',
+
+    // ── Prompt step placeholders ──────────────────────────────────────────
+    promptPlaceholder:  '例如：凯尔特结，带精细交错图案…',
+    model3dPlaceholder: '例如：维京战士半身像，带编发胡须…',
   },
 } as const
 

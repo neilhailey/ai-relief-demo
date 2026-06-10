@@ -1,9 +1,16 @@
 import { useState } from 'react'
 import { useLang } from '../contexts/LanguageContext'
+import type { Orientation } from './PromptStep'
 
 export interface ImageOption {
   index: number
   url: string
+}
+
+const ASPECT_PADDING: Record<Orientation, string> = {
+  square:    '100%',
+  portrait:  '150%',
+  landscape: '66.67%',
 }
 
 interface Props {
@@ -13,9 +20,11 @@ interface Props {
   onSelect: (index: number) => void
   onRegenerate: () => void
   loading: boolean
+  orientation?: Orientation
 }
 
-export function SelectStep({ prompt, enhancedPrompt, images, onSelect, onRegenerate, loading }: Props) {
+export function SelectStep({ prompt, enhancedPrompt, images, onSelect, onRegenerate, loading, orientation = 'portrait' }: Props) {
+  const aspectPadding = ASPECT_PADDING[orientation]
   const { t } = useLang()
   const [hovered,      setHovered]      = useState<number | null>(null)
   const [selected,     setSelected]     = useState<number | null>(null)
@@ -98,7 +107,7 @@ export function SelectStep({ prompt, enhancedPrompt, images, onSelect, onRegener
                 position: 'relative',
               }}
             >
-              <div style={{ position: 'relative', paddingBottom: '150%', background: 'var(--surface)' }}>
+              <div style={{ position: 'relative', paddingBottom: aspectPadding, background: 'var(--surface)' }}>
                 <img
                   src={img.url}
                   alt={t.variation(img.index + 1)}

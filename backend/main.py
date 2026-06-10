@@ -39,14 +39,24 @@ app.add_middleware(
 
 # ── Models ──────────────────────────────────────────────────────────────────
 
+_VALID_ORIENTATIONS = {"square", "portrait", "landscape"}
+_ORIENTATION_SIZES  = {
+    "square":    "1024x1024",
+    "portrait":  "1024x1536",
+    "landscape": "1536x1024",
+}
+
+
 class GenerateRequest(BaseModel):
-    prompt: str
+    prompt:      str
+    orientation: str = "portrait"   # square | portrait | landscape
 
 
 class ReliefRequest(BaseModel):
-    session_id: str
+    session_id:  str
     image_index: int
-    prompt: str                          # needed to generate heightmap
+    prompt:      str                  # needed to generate heightmap
+    orientation: str = "portrait"    # must match the visual render orientation
     scale_z: float        = Field(1.0,  ge=0.1, le=3.0)
     detail_enhance: float = Field(0.25, ge=0.0, le=1.0)
     replace_below: float  = Field(0.05, ge=0.0, le=0.9)
@@ -176,17 +186,21 @@ async def api_generate(req: GenerateRequest):
     (session_dir / "prompt.txt").write_text(original)
 
     try:
+        orientation = req.orientation if req.orientation in _VALID_ORIENTATIONS else "portrait"
+        size = _ORIENTATION_SIZES[orientation]
+
         # Expand the short user prompt into a rich, sculpture-focused description
         # before passing it to the image generator.
         enhanced = await enhance_prompt(original)
         (session_dir / "enhanced_prompt.txt").write_text(enhanced)
 
-        images = await generate_images(enhanced, session_dir, session_id)
+        images = await generate_images(enhanced, session_dir, session_id, size=size)
         return {
             "session_id":      session_id,
             "images":          images,
             "original_prompt": original,
             "enhanced_prompt": enhanced,
+            "orientation":     orientation,
         }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -209,12 +223,15 @@ async def api_relief(req: ReliefRequest):
         raise HTTPException(status_code=404, detail="Image not found")
 
     try:
-        # Generate a grayscale heightmap derived from the user-selected image
-        # so the STL faithfully represents what was chosen, not a re-imagination
-        # of the text prompt.
+        orientation = req.orientation if req.orientation in _VALID_ORIENTATIONS else "portrait"
+        size = _ORIENTATION_SIZES[orientation]
+
+        # Generate a grayscale heightmap at the same size as the visual render
+        # so the STL proportions match what the user saw and selected.
         heightmap_path = await generate_heightmap(
             req.prompt, session_dir, req.session_id,
             source_image=image_path,
+            size=size,
         )
 
         stl_path = session_dir / "relief.stl"

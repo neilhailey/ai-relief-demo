@@ -2,7 +2,8 @@ import { useState, KeyboardEvent } from 'react'
 import { ImageGenLoading } from './LoadingVibes'
 import { useLang } from '../contexts/LanguageContext'
 
-const ALL_EXAMPLES = [
+// ── Example prompt pools (EN / ZH must stay in the same order) ────────────────
+const ALL_EXAMPLES_EN = [
   // Wildlife
   'Celtic knot medallion',
   'Howling wolf silhouette',
@@ -117,27 +118,147 @@ const ALL_EXAMPLES = [
   'Snake coiled around dagger',
 ]
 
-function pickRandom(n: number): string[] {
-  const shuffled = [...ALL_EXAMPLES].sort(() => Math.random() - 0.5)
-  return shuffled.slice(0, n)
+const ALL_EXAMPLES_ZH = [
+  // Wildlife
+  '凯尔特结圆章',
+  '嚎叫狼剪影',
+  '盛开的向日葵',
+  '山脉风光',
+  '锦鲤',
+  '翱翔的鹰',
+  '曼陀罗图案',
+  '带刺玫瑰',
+  '罗盘玫瑰',
+  '跃起的雄鹿',
+  '橡树与根系',
+  '航海锚',
+  '蜂鸟',
+  '莲花',
+  '奔马',
+  '夕阳下的松林',
+  '部落熊',
+  '破浪',
+  '仓鸮',
+  '葡萄藤花环',
+  '跃起的鲑鱼',
+  '鹿颅与鹿角',
+  '白头鹰头像',
+  '几何鹿',
+  '龙的剪影',
+  '复古船舵',
+  '蜜蜂与蜂巢',
+  '公牛颅骨',
+  // More wildlife
+  '灰熊肖像',
+  '狼群对月嚎叫',
+  '红尾鹰俯冲',
+  '悬崖边缘的山羊',
+  '大角雄鹿',
+  '涉水沼泽的驼鹿',
+  '冲锋的野猪',
+  '山脊上的大角羊',
+  '奔跑的叉角羚',
+  '黄昏嚎叫的山狼',
+  '停栖枝头的乌鸦',
+  '飞翔的加拿大雁',
+  '白尾鹿母子',
+  '野牛公牛',
+  '银背大猩猩',
+  '秋叶中的红狐',
+  '全速奔跑的野兔',
+  '清晨报晓的公鸡',
+  '孔雀开屏',
+  '水面滑翔的天鹅',
+  '大角鸮面部',
+  '野火鸡展尾',
+  '从草丛腾飞的野鸡',
+  // Fish & marine
+  '跃出水面的大嘴鲈',
+  '跃起的虹鳟',
+  '卷曲触角的章鱼',
+  '游弋的海龟',
+  '跃出水面的海豚',
+  '夕阳下的鲸尾',
+  '大白鲨',
+  '硬头鳟',
+  '溪鳟',
+  '白眼鱼',
+  // Celtic, Norse & heraldic
+  '凯尔特三重螺旋',
+  '扬帆的维京长船',
+  '带角维京头盔',
+  '北欧生命之树',
+  '鸢尾花饰',
+  '纹章立狮',
+  '骑士盾与交叉剑',
+  '珠宝王冠',
+  '交叉战斧',
+  '缠绳锚',
+  // Native American
+  '捕梦网与羽毛',
+  '西北太平洋图腾面孔',
+  '雷鸟展翅',
+  '药轮',
+  '水牛颅骨与头饰',
+  // Botanical & nature
+  '樱花枝',
+  '枫叶',
+  '苏格兰蓟',
+  '盛开的鸢尾',
+  '水边香蒲',
+  '麦穗束',
+  '枝头松果',
+  '橡果与橡叶',
+  '蘑菇丛',
+  '展开的蕨叶',
+  '罂粟花',
+  '薰衣草枝',
+  // Landscapes
+  '林间瀑布',
+  '黎明岩峰',
+  '沙漠拱门峡谷',
+  '风暴中的灯塔',
+  '古老廊桥',
+  // Western & Americana
+  '长角牛颅骨',
+  '牛仔帽与靴子',
+  '马蹄铁与幸运草',
+  '鲍伊刀',
+  '木吉他',
+  '野花装点的水牛颅骨',
+  // Misc
+  '古董罗盘玫瑰',
+  '怀表齿轮',
+  '复古骷髅钥匙',
+  '蛇缠匕首',
+]
+
+function pickRandomIndices(n: number): number[] {
+  const indices = Array.from({ length: ALL_EXAMPLES_EN.length }, (_, i) => i)
+  return indices.sort(() => Math.random() - 0.5).slice(0, n)
 }
 
+export type Orientation = 'square' | 'portrait' | 'landscape'
+
 interface Props {
-  onGenerate: (prompt: string) => void
+  onGenerate: (prompt: string, orientation: Orientation) => void
   loading: boolean
   onSwitchToUpload: () => void
 }
 
 export function PromptStep({ onGenerate, loading, onSwitchToUpload }: Props) {
-  const { t } = useLang()
-  const [prompt,   setPrompt]   = useState('')
+  const { t, lang } = useLang()
+  const [prompt,      setPrompt]      = useState('')
+  const [orientation, setOrientation] = useState<Orientation>('portrait')
   // Lazy initializer — runs once on mount, gives a fresh random set each page load
-  const [examples] = useState<string[]>(() => pickRandom(7))
+  // Stores indices so switching language updates chips without re-randomising
+  const [exampleIdxs] = useState<number[]>(() => pickRandomIndices(7))
+  const examples = exampleIdxs.map(i => lang === 'zh' ? ALL_EXAMPLES_ZH[i] : ALL_EXAMPLES_EN[i])
 
   function submit() {
     const p = prompt.trim()
     if (!p || loading) return
-    onGenerate(p)
+    onGenerate(p, orientation)
   }
 
   function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
@@ -175,7 +296,7 @@ export function PromptStep({ onGenerate, loading, onSwitchToUpload }: Props) {
           value={prompt}
           onChange={e => setPrompt(e.target.value)}
           onKeyDown={onKey}
-          placeholder="e.g. Celtic knot with intricate interlacing patterns…"
+          placeholder={t.promptPlaceholder}
           disabled={loading}
           rows={3}
           style={{
@@ -201,8 +322,47 @@ export function PromptStep({ onGenerate, loading, onSwitchToUpload }: Props) {
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}
         >
-          {loading ? <><Spinner /> Generating…</> : t.generateImages}
+          {loading ? <><Spinner /> {t.generatingDots}</> : t.generateImages}
         </button>
+      </div>
+
+      {/* Orientation picker */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{t.orientationLabel}</span>
+        {(['square', 'portrait', 'landscape'] as Orientation[]).map(o => {
+          const active = orientation === o
+          const shapes: Record<Orientation, string> = {
+            square:    '■',
+            portrait:  '▐',
+            landscape: '▬',
+          }
+          const labels: Record<Orientation, string> = {
+            square:    t.orientSquare,
+            portrait:  t.orientPortrait,
+            landscape: t.orientLandscape,
+          }
+          return (
+            <button
+              key={o}
+              onClick={() => !loading && setOrientation(o)}
+              disabled={loading}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                padding: '6px 14px',
+                background: active ? 'rgba(249,115,22,.12)' : 'var(--surface)',
+                border: `1.5px solid ${active ? 'var(--accent)' : 'var(--border)'}`,
+                borderRadius: 20,
+                color: active ? 'var(--accent)' : 'var(--text-dim)',
+                fontSize: 12, fontWeight: active ? 600 : 400,
+                cursor: loading ? 'default' : 'pointer',
+                transition: 'all .15s',
+              }}
+            >
+              <span style={{ fontSize: 10 }}>{shapes[o]}</span>
+              {labels[o]}
+            </button>
+          )
+        })}
       </div>
 
       {/* Example chips */}

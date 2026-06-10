@@ -87,7 +87,10 @@ async def enhance_prompt(original: str) -> str:
         return original
 
 
-async def generate_images(prompt: str, session_dir: Path, session_id: str) -> list[dict]:
+async def generate_images(
+    prompt: str, session_dir: Path, session_id: str,
+    size: str = "1024x1536",
+) -> list[dict]:
     """Generate 2 visual renders for user selection."""
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -106,12 +109,12 @@ async def generate_images(prompt: str, session_dir: Path, session_id: str) -> li
     ]
 
     async def _gen(styled_prompt: str, idx: int) -> dict:
-        logger.info("Generating visual image %d …", idx)
+        logger.info("Generating visual image %d  size=%s …", idx, size)
         response = await client.images.generate(
             model="gpt-image-1",
             prompt=styled_prompt,
             n=1,
-            size="1024x1536",   # portrait — prevents tall subjects (humans/animals) being cropped
+            size=size,
         )
         img = response.data[0]
         image_data = img.b64_json or ""
@@ -243,6 +246,7 @@ async def generate_heightmap(
     session_dir: Path,
     session_id: str,
     source_image: Path,
+    size: str = "1024x1024",
 ) -> Path:
     """Generate a grayscale heightmap using images.generate().
 
@@ -264,13 +268,13 @@ async def generate_heightmap(
 
     # Apply the same framing prefix so the heightmap subject isn't cropped either
     heightmap_prompt = _FRAMING_PREFIX + _HEIGHTMAP_TEMPLATE.format(subject=prompt)
-    logger.info("Generating heightmap for: %s …", prompt[:60])
+    logger.info("Generating heightmap  size=%s  prompt: %s …", size, prompt[:60])
 
     response = await client.images.generate(
         model="gpt-image-1",
         prompt=heightmap_prompt,
         n=1,
-        size="1024x1024",
+        size=size,
     )
     img = response.data[0]
     image_data = img.b64_json or ""
