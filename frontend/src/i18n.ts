@@ -174,7 +174,7 @@ export const TRANSLATIONS = {
 
     // ── Recent panel ──────────────────────────────────────────────────────
     recentCreations:   'Recent Creations',
-    savedSession:      (n: number) => `${n} of 5 saved this session`,
+    savedSession:      (n: number) => `${n} saved this session`,
     noCreations:       'No creations yet',
     noCreationsHint:   'Generate something to see it here.',
     badgeRelief:       '▦ Relief',
@@ -415,7 +415,7 @@ export const TRANSLATIONS = {
 
     // ── Recent panel ──────────────────────────────────────────────────────
     recentCreations:   '历史创作',
-    savedSession:      (n: number) => `本次会话已保存 ${n}/5 个`,
+    savedSession:      (n: number) => `本次会话已保存 ${n} 个`,
     noCreations:       '暂无创作记录',
     noCreationsHint:   '生成一些作品后会显示在这里。',
     badgeRelief:       '▦ 浮雕',

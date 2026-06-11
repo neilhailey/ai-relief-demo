@@ -94,13 +94,16 @@ function CreationCard({
       border: `1px solid ${isLatest ? (is3d ? 'rgba(99,102,241,.4)' : 'rgba(249,115,22,.4)') : 'var(--border)'}`,
       overflow: 'hidden', background: 'var(--surface2)', transition: 'border-color .15s',
     }}>
-      <div style={{ position: 'relative', width: '100%', paddingTop: '50%', background: '#0a0d12' }}>
+      <div style={{
+        width: '100%', height: 180, background: '#0a0d12',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        overflow: 'hidden', position: 'relative',
+      }}>
         {creation.thumbnail ? (
           <img
             src={creation.thumbnail} alt={creation.prompt}
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.9 }}
+            style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', opacity: 0.9 }}
             onError={e => {
-              // CDN URL expired or failed — hide img and show the emoji fallback
               const img = e.currentTarget
               img.style.display = 'none'
               const fallback = img.parentElement?.querySelector('.thumb-fallback') as HTMLElement | null
