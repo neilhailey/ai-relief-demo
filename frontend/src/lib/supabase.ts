@@ -49,7 +49,6 @@ export async function loadCreations(): Promise<DbCreation[]> {
     .from('creations')
     .select('*')
     .order('created_at', { ascending: false })
-    .limit(50)
 
   if (error) { console.error('loadCreations failed:', error); return [] }
   return (data ?? []) as DbCreation[]
@@ -82,14 +81,13 @@ export async function unpublishCreation(id: string): Promise<boolean> {
   return true
 }
 
-export async function loadGallery(limit = 40): Promise<DbCreation[]> {
+export async function loadGallery(): Promise<DbCreation[]> {
   if (!supabase) return []
   const { data, error } = await supabase
     .from('creations')
     .select('id, type, flow_mode, prompt, thumbnail, stl_url, published_at, created_at')
     .eq('is_public', true)
     .order('published_at', { ascending: false })
-    .limit(limit)
 
   if (error) { console.error('loadGallery failed:', error); return [] }
   return (data ?? []) as DbCreation[]

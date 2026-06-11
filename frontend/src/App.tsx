@@ -90,12 +90,28 @@ export default function App() {
   async function persistCreation(c: Creation): Promise<string | null> {
     if (!user) return null
     const uid = Math.random().toString(36).slice(2, 8)
+
+    // Upload thumbnail to Supabase Storage if it's still a data URL
     let thumbUrl = c.thumbnail
     if (thumbUrl && thumbUrl.startsWith('data:')) {
       const ext = thumbUrl.startsWith('data:image/webp') ? 'webp' : 'png'
       const ct  = ext === 'webp' ? 'image/webp' : 'image/png'
-      thumbUrl = await uploadDataUrl(thumbUrl, `thumbnails/${uid}.${ext}`, ct) ?? thumbUrl
+      thumbUrl = await uploadDataUrl(thumbUrl, `thumbnails/${uid}.${ext}`, ct) ?? null
     }
+
+    // Strip data URLs from the session before writing to the DB.
+    // Generated images are several MB of base64 each — saving them in a JSONB
+    // column makes the row too large for Supabase to accept, causing silent failures.
+    // stlUrl / renderedUrl are already permanent URLs so they are kept.
+    const cleanSession = {
+      ...c.session,
+      images:      c.session.images.map(img => ({
+        ...img,
+        url: img.url.startsWith('data:') ? '' : img.url,
+      })),
+      heightmapUrl: c.session.heightmapUrl?.startsWith('data:') ? null : c.session.heightmapUrl,
+    }
+
     const row = await saveCreation({
       type:      c.type,
       flow_mode: c.flowMode,
@@ -103,14 +119,15 @@ export default function App() {
       thumbnail: thumbUrl,
       glb_url:   c.session.glbUrl ?? null,
       stl_url:   c.session.stlUrl ?? null,
-      session:   c.session as unknown as Record<string, unknown>,
+      session:   cleanSession as unknown as Record<string, unknown>,
     })
+    if (!row) console.warn('persistCreation: saveCreation returned null — check Supabase logs')
     return row?.id ?? null
   }
 
   function addCreation(c: Omit<Creation, 'id' | 'dbId' | 'isPublic'>) {
     const entry: Creation = { ...c, id: Math.random().toString(36).slice(2, 8), dbId: null, isPublic: false }
-    setCreations(prev => [entry, ...prev].slice(0, 20))
+    setCreations(prev => [entry, ...prev])
     // Persist to DB in background and store the returned DB id
     persistCreation(entry).then(dbId => {
       if (dbId) {
