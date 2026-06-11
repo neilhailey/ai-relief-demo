@@ -15,7 +15,6 @@ import asyncio
 import math
 import struct
 import logging
-from collections import deque
 from pathlib import Path
 
 import numpy as np
@@ -31,7 +30,7 @@ async def depth_to_stl(
     height_mm: float = 100.0,
     relief_depth_mm: float = 8.0,
     base_thickness_mm: float = 2.0,
-    resolution: int = 1024,
+    resolution: int = 512,          # 512 → 0.2 mm/px at 100 mm — plenty for CNC
     scale_z: float = 1.0,
     detail_enhance: float = 0.25,
     replace_below: float = 0.05,
@@ -48,31 +47,47 @@ async def depth_to_stl(
 # ── Background removal ────────────────────────────────────────────────────────
 
 def _flood_fill_background(arr: np.ndarray, tolerance: float = 0.10) -> np.ndarray:
-    """BFS flood-fill from image border to zero out the connected background."""
+    """
+    Zero out the border-connected background region.
+
+    Uses scipy.ndimage.label (C-level) to find connected components of
+    background-candidate pixels, then removes those that touch the image
+    border. This is 20-50× faster than a Python BFS at 512+ px resolution.
+    """
     h, w = arr.shape
     border_vals = np.concatenate([arr[0, :], arr[-1, :], arr[1:-1, 0], arr[1:-1, -1]])
     bg_level = float(np.median(border_vals))
     limit    = bg_level + tolerance
     candidate = arr <= limit
 
-    visited = np.zeros((h, w), dtype=bool)
-    q: deque = deque()
-
-    for i in range(h):
-        for j in (0, w - 1):
-            if candidate[i, j] and not visited[i, j]:
-                visited[i, j] = True; q.append((i, j))
-    for j in range(w):
-        for i in (0, h - 1):
-            if candidate[i, j] and not visited[i, j]:
-                visited[i, j] = True; q.append((i, j))
-
-    while q:
-        r, c = q.popleft()
-        for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)):
-            nr, nc = r+dr, c+dc
-            if 0 <= nr < h and 0 <= nc < w and not visited[nr, nc] and candidate[nr, nc]:
-                visited[nr, nc] = True; q.append((nr, nc))
+    try:
+        from scipy.ndimage import label as ndlabel
+        labeled, _ = ndlabel(candidate)
+        # Collect all label ids that appear on any border pixel
+        border_labels = np.unique(np.concatenate([
+            labeled[0, :], labeled[-1, :], labeled[:, 0], labeled[:, -1]
+        ]))
+        border_labels = border_labels[border_labels > 0]   # 0 = non-candidate
+        visited = np.isin(labeled, border_labels)
+    except ImportError:
+        # Fallback: pure-Python BFS (slower but always available)
+        visited = np.zeros((h, w), dtype=bool)
+        from collections import deque as _deque
+        q: _deque = _deque()
+        for i in range(h):
+            for j in (0, w - 1):
+                if candidate[i, j] and not visited[i, j]:
+                    visited[i, j] = True; q.append((i, j))
+        for j in range(w):
+            for i in (0, h - 1):
+                if candidate[i, j] and not visited[i, j]:
+                    visited[i, j] = True; q.append((i, j))
+        while q:
+            r, c = q.popleft()
+            for dr, dc in ((-1,0),(1,0),(0,-1),(0,1)):
+                nr, nc = r+dr, c+dc
+                if 0 <= nr < h and 0 <= nc < w and not visited[nr, nc] and candidate[nr, nc]:
+                    visited[nr, nc] = True; q.append((nr, nc))
 
     result = arr.copy()
     result[visited] = 0.0
@@ -199,7 +214,18 @@ def _build(
 
     # ── Load & resize ────────────────────────────────────────────────────────
     img = Image.open(depth_path).convert("L")
-    img = img.resize((resolution, resolution), Image.LANCZOS)
+    orig_w, orig_h = img.size
+    aspect = orig_h / orig_w           # preserve portrait / landscape proportions
+
+    target_w = resolution
+    target_h = max(1, round(resolution * aspect))
+    img = img.resize((target_w, target_h), Image.LANCZOS)
+
+    # Derive physical height so the carving proportions match the image
+    height_mm = width_mm * aspect
+
+    logger.info("Heightmap %dx%d → %dx%d  (%.2f:1)  carving %.0f×%.0f mm",
+                orig_w, orig_h, target_w, target_h, aspect, width_mm, height_mm)
 
     if detail_enhance > 0:
         img = ImageEnhance.Contrast(img).enhance(1.0 + detail_enhance * 3.0)
