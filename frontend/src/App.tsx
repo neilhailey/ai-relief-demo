@@ -445,10 +445,13 @@ export default function App() {
             style={{
               padding: '5px 11px', borderRadius: 20, cursor: 'pointer',
               background: 'var(--surface2)', border: '1px solid var(--border)',
-              fontSize: 13, color: 'var(--text-dim)', transition: 'all .2s',
+              fontSize: 12, fontWeight: 700, color: 'var(--text-dim)',
+              letterSpacing: '.02em', transition: 'all .2s',
+              display: 'flex', alignItems: 'center', gap: 5,
             }}
           >
-            {theme === 'dark' ? '☀' : '☾'}
+            <span style={{ fontSize: 14 }}>{theme === 'dark' ? '☀' : '☾'}</span>
+            {theme === 'dark' ? 'Light' : 'Dark'}
           </button>
 
           {/* Language toggle */}
