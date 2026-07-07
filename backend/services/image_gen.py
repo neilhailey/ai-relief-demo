@@ -280,7 +280,7 @@ async def generate_heightmap(
             image=f,
             prompt=heightmap_prompt,
             n=1,
-            size="1024x1024",
+            size=size,
         )
     img = response.data[0]
     image_data = img.b64_json or ""
