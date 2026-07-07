@@ -361,10 +361,9 @@ export default function App() {
         type:      'relief',
         prompt:    session.prompt,
         flowMode,
-        thumbnail: data.heightmap_url,             // heightmap as the card thumbnail
+        thumbnail: selectedImg?.url ?? data.heightmap_url,
         session:   updatedSession,
       })
-      void selectedImg   // suppress unused-var lint
       setStep(4)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong')

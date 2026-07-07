@@ -1,7 +1,8 @@
 import { useState, KeyboardEvent } from 'react'
 import { useLang } from '../contexts/LanguageContext'
 
-const EXAMPLES = [
+// ── Example prompt pools (EN / ZH must stay in the same order) ────────────────
+const EXAMPLES_EN = [
   'Viking warrior bust',
   'Sitting Buddha statue',
   'Celtic cross',
@@ -34,8 +35,42 @@ const EXAMPLES = [
   'Bighorn sheep head',
 ]
 
-function pickRandom(n: number): string[] {
-  return [...EXAMPLES].sort(() => Math.random() - 0.5).slice(0, n)
+const EXAMPLES_ZH = [
+  '维京战士半身像',
+  '坐佛像',
+  '凯尔特十字架',
+  '龙形摆件',
+  '国际象棋马',
+  '嚎叫的狼',
+  '武士头盔',
+  '停栖岩石的鹰',
+  '公牛颅骨战利品',
+  '直立的熊',
+  '美人鱼摆件',
+  '美洲原住民酋长半身像',
+  '狮头',
+  '中世纪火炮',
+  '花园地精雕像',
+  '坐姿狐狸',
+  '颅骨与鹿角',
+  '奖杯',
+  '船锚',
+  '克拉肯触手',
+  '停栖树枝的猫头鹰',
+  '麋鹿头标本',
+  '嚎叫的山狼',
+  '斯巴达头盔',
+  '海盗骷髅',
+  '坐姿猫咪',
+  '野牛颅骨',
+  '天使翅膀',
+  '蹲伏的滴水兽',
+  '大角羊头',
+]
+
+function pickRandomIndices(n: number): number[] {
+  const indices = Array.from({ length: EXAMPLES_EN.length }, (_, i) => i)
+  return indices.sort(() => Math.random() - 0.5).slice(0, n)
 }
 
 interface Props {
@@ -45,9 +80,11 @@ interface Props {
 }
 
 export function Model3dPromptStep({ onGenerate, loading, onSwitchToAI }: Props) {
-  const { t } = useLang()
+  const { t, lang } = useLang()
   const [prompt,   setPrompt]   = useState('')
-  const [examples] = useState<string[]>(() => pickRandom(7))
+  // Store indices so switching language updates chips without re-randomising
+  const [exampleIdxs] = useState<number[]>(() => pickRandomIndices(7))
+  const examples = exampleIdxs.map(i => lang === 'zh' ? EXAMPLES_ZH[i] : EXAMPLES_EN[i])
 
   function submit() {
     const p = prompt.trim()
@@ -78,7 +115,7 @@ export function Model3dPromptStep({ onGenerate, loading, onSwitchToAI }: Props) 
           value={prompt}
           onChange={e => setPrompt(e.target.value)}
           onKeyDown={onKey}
-          placeholder="e.g. Viking warrior bust with braided beard…"
+          placeholder={t.model3dPlaceholder}
           disabled={loading}
           rows={3}
           style={{
@@ -104,7 +141,7 @@ export function Model3dPromptStep({ onGenerate, loading, onSwitchToAI }: Props) 
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           }}
         >
-          {loading ? <><Spin3d /> Submitting…</> : t.generate3dBtn}
+          {loading ? <><Spin3d /> {t.generatingDots}</> : t.generate3dBtn}
         </button>
       </div>
 

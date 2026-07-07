@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useLang } from '../contexts/LanguageContext'
 import type { Orientation } from './PromptStep'
 
@@ -29,10 +29,15 @@ export function SelectStep({ prompt, enhancedPrompt, images, onSelect, onRegener
   const [hovered,      setHovered]      = useState<number | null>(null)
   const [selected,     setSelected]     = useState<number | null>(null)
   const [showEnhanced, setShowEnhanced] = useState(false)
+  const confirmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   function confirm(idx: number) {
+    if (confirmTimerRef.current) clearTimeout(confirmTimerRef.current)
     setSelected(idx)
-    setTimeout(() => onSelect(idx), 180)
+    confirmTimerRef.current = setTimeout(() => {
+      confirmTimerRef.current = null
+      onSelect(idx)
+    }, 180)
   }
 
   return (

@@ -8,13 +8,14 @@ export type CameraPreset = 'iso' | 'top' | 'front' | 'right'
 interface Props {
   url: string
   scaleZ?: number          // live depth multiplier — applied without reloading STL
+  relief?: boolean         // true = apply -π/2 X-rotation for flat bas-reliefs; false = full 3D model (default)
   onReady?: (goToPreset: (preset: CameraPreset) => void) => void
   onLoadStart?: () => void
   onLoadEnd?: () => void
   onLoadError?: (err: string) => void
 }
 
-export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, onLoadError }: Props) {
+export function StlViewer({ url, scaleZ = 1, relief = false, onReady, onLoadStart, onLoadEnd, onLoadError }: Props) {
   const mountRef     = useRef<HTMLDivElement>(null)
   const rendererRef  = useRef<THREE.WebGLRenderer | null>(null)
   const sceneRef     = useRef<THREE.Scene | null>(null)
@@ -24,18 +25,21 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
   const planeRef     = useRef<THREE.Mesh | null>(null)
   const sizeRef      = useRef(new THREE.Vector3())
   const firstLoadRef = useRef(true)
+  const targetYRef   = useRef(0)   // world-space Y of orbit center (set after each model load)
 
-  // Stable refs so closures always read the latest callback / scaleZ
+  // Stable refs so closures always read the latest callback / scaleZ / relief
   const onReadyRef     = useRef(onReady)
   const onLoadStartRef = useRef(onLoadStart)
   const onLoadEndRef   = useRef(onLoadEnd)
   const onLoadErrorRef = useRef(onLoadError)
   const scaleZRef      = useRef(scaleZ)
+  const reliefRef      = useRef(relief)
   useEffect(() => { onReadyRef.current     = onReady     }, [onReady])
   useEffect(() => { onLoadStartRef.current = onLoadStart }, [onLoadStart])
   useEffect(() => { onLoadEndRef.current   = onLoadEnd   }, [onLoadEnd])
   useEffect(() => { onLoadErrorRef.current = onLoadError }, [onLoadError])
   useEffect(() => { scaleZRef.current      = scaleZ      }, [scaleZ])
+  useEffect(() => { reliefRef.current      = relief      }, [relief])
 
   // ── Live scaleZ update — no geometry reload needed ────────────────────────
   useEffect(() => {
@@ -77,9 +81,24 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
     scene.add(rim)
 
     const controls = new OrbitControls(camera, renderer.domElement)
-    controls.enableDamping = true
-    controls.dampingFactor = 0.06
+    controls.enableDamping  = true
+    controls.dampingFactor  = 0.06
+    controls.autoRotate     = true
+    controls.autoRotateSpeed = 1.0   // ~0.5 RPM — slow turntable
     controlRef.current = controls
+
+    // Pause rotation while the user is dragging; resume 2 s after release.
+    let resumeTimer: ReturnType<typeof setTimeout> | null = null
+    function onPointerDown() {
+      controls.autoRotate = false
+      if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null }
+    }
+    function onPointerUp() {
+      if (resumeTimer) clearTimeout(resumeTimer)
+      resumeTimer = setTimeout(() => { controls.autoRotate = true }, 2000)
+    }
+    renderer.domElement.addEventListener('pointerdown', onPointerDown)
+    renderer.domElement.addEventListener('pointerup',   onPointerUp)
 
     let raf: number
     function animate() {
@@ -100,6 +119,9 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
     return () => {
       cancelAnimationFrame(raf)
       window.removeEventListener('resize', onResize)
+      renderer.domElement.removeEventListener('pointerdown', onPointerDown)
+      renderer.domElement.removeEventListener('pointerup',   onPointerUp)
+      if (resumeTimer) clearTimeout(resumeTimer)
       controls.dispose()
       renderer.dispose()
       if (mount && renderer.domElement.parentNode === mount)
@@ -160,7 +182,9 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
         const mesh = new THREE.Mesh(geometry, material)
         mesh.castShadow    = true
         mesh.receiveShadow = true
-        mesh.rotation.x    = -Math.PI / 2
+        // Bas-reliefs are built flat in the XY plane; -π/2 around X tilts the face upward.
+        // Full 3D models from trimesh/GLB are already Y-up — no rotation needed.
+        if (relief) mesh.rotation.x = -Math.PI / 2
         mesh.scale.z       = scaleZRef.current
 
         // 5. Atomic swap
@@ -174,10 +198,18 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
         scene.add(mesh)
         meshRef.current = mesh
 
-        // 6. Shadow plane — position below the model in world space
-        //    After rotation.x = -PI/2, geometry-Z maps to world-Y.
-        //    The bottom of the model in world-Y = -normSize.z / 2.
-        const groundY = -normSize.z / 2 - 2
+        // Compute the true world-space Y centre of the mesh (after rotation/scale) so
+        // the orbit target is exactly at the model's mid-point, not assumed to be at Y=0.
+        const worldBox = new THREE.Box3().setFromObject(mesh)
+        const worldCenter = new THREE.Vector3()
+        worldBox.getCenter(worldCenter)
+        targetYRef.current = worldCenter.y
+        ctrl.target.set(0, worldCenter.y, 0)
+
+        // 6. Shadow plane — position below the model in world space.
+        //    Relief: after rotation.x = -PI/2, geometry-Z → world-Y, so bottom = -normSize.z/2.
+        //    3D model: no rotation, geometry-Y is already world-Y, so bottom = -normSize.y/2.
+        const groundY = relief ? -normSize.z / 2 - 2 : -normSize.y / 2 - 2
         const plane = new THREE.Mesh(
           new THREE.PlaneGeometry(TARGET * 8, TARGET * 8),
           new THREE.ShadowMaterial({ opacity: 0.2 }),
@@ -210,16 +242,23 @@ export function StlViewer({ url, scaleZ = 1, onReady, onLoadStart, onLoadEnd, on
 
         // 8. Camera preset helper
         function goToPreset(preset: CameraPreset) {
-          const sz = sizeRef.current
+          const sz   = sizeRef.current
           const dist = Math.max(sz.x, sz.y, sz.z) * 1.8   // ~180 units for 100-unit model
+          const isRelief = reliefRef.current
+          const ty   = targetYRef.current   // world Y of orbit centre (model mid-point)
           switch (preset) {
-            case 'iso':   cam.position.set( dist * 0.55, dist * 0.75, dist * 0.60); break
-            case 'top':   cam.position.set( 0,           dist * 1.4,  0.001);       break
-            case 'front': cam.position.set( 0,           dist * 0.15, dist * 1.1);  break
-            case 'right': cam.position.set( dist * 1.1,  dist * 0.15, 0);           break
+            // Relief: steep top-down ISO to show the carved surface.
+            // 3D model: shallower angle (30° elevation) so the full object is visible.
+            case 'iso':
+              if (isRelief) cam.position.set(dist * 0.55, ty + dist * 0.75, dist * 0.60)
+              else          cam.position.set(dist * 0.80, ty + dist * 0.45, dist * 0.80)
+              break
+            case 'top':   cam.position.set( 0,           ty + dist * 1.4,  0.001);       break
+            case 'front': cam.position.set( 0,           ty + dist * 0.15, dist * 1.1);  break
+            case 'right': cam.position.set( dist * 1.1,  ty + dist * 0.15, 0);           break
           }
-          cam.lookAt(0, 0, 0)
-          ctrl.target.set(0, 0, 0)
+          cam.lookAt(0, ty, 0)
+          ctrl.target.set(0, ty, 0)
           ctrl.update()
         }
 

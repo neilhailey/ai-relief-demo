@@ -213,6 +213,7 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
           <StlViewer
             url={currentStlUrl}
             scaleZ={scaleZ / 100}
+            relief
             onReady={fn => { goToPresetRef.current = fn }}
             onLoadStart={() => {}}
             onLoadEnd={() => setModelLoading(false)}

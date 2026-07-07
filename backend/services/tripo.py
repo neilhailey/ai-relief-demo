@@ -139,10 +139,16 @@ async def finish_tripo_task(
     # ── Download GLB ─────────────────────────────────────────────────────────
     logger.info("Downloading GLB…")
     glb_path = session_dir / "model.glb"
-    async with aiohttp.ClientSession() as dl:
-        async with dl.get(model_url, timeout=aiohttp.ClientTimeout(total=120)) as resp:
-            resp.raise_for_status()
-            glb_path.write_bytes(await resp.read())
+    try:
+        async with aiohttp.ClientSession() as dl:
+            # 600 s total; stream in 1 MB chunks so large files (50–200 MB) don't stall
+            async with dl.get(model_url, timeout=aiohttp.ClientTimeout(total=600)) as resp:
+                resp.raise_for_status()
+                with glb_path.open("wb") as fout:
+                    async for chunk in resp.content.iter_chunked(1024 * 1024):
+                        fout.write(chunk)
+    except asyncio.TimeoutError as exc:
+        raise RuntimeError("GLB download timed out after 600 s — Tripo CDN may be slow") from exc
     logger.info("GLB saved %d bytes → %s", glb_path.stat().st_size, glb_path)
 
     # ── Convert GLB → STL in a subprocess ────────────────────────────────────
