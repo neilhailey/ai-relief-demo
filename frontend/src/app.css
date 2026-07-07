@@ -35,6 +35,20 @@
   --radius: 8px;
 }
 
+html[data-theme="light"] {
+  --bg:         #f3f4f6;
+  --surface:    #ffffff;
+  --surface2:   #f9fafb;
+  --surface3:   #eff6ff;
+  --border:     #e5e7eb;
+  --border-sub: #f3f4f6;
+  --text:       #111827;
+  --text-dim:   #4b5563;
+  --text-muted: #6b7280;
+  --muted:      #6b7280;
+  --blue-deep:  #dbeafe;
+}
+
 html, body, #root {
   height: 100%;
   font-family: 'Inter', -apple-system, sans-serif;

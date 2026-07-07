@@ -54,6 +54,15 @@ export default function App() {
   const [showGame,   setShowGame]   = useState(false)
   const [showGallery,setShowGallery]= useState(false)
 
+  // ── Theme ─────────────────────────────────────────────────────────────────
+  const [theme, setTheme] = useState<'dark' | 'light'>(
+    () => (document.documentElement.dataset.theme as 'dark' | 'light') ?? 'dark'
+  )
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
   // ── Auth + language ───────────────────────────────────────────────────────
   const [user,      setUser]      = useState<User | null>(null)
   const [showAuth,  setShowAuth]  = useState(false)
@@ -427,6 +436,19 @@ export default function App() {
             }}
           >
             🌐 {t.gallery}
+          </button>
+
+          {/* Theme toggle */}
+          <button
+            onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
+            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+            style={{
+              padding: '5px 11px', borderRadius: 20, cursor: 'pointer',
+              background: 'var(--surface2)', border: '1px solid var(--border)',
+              fontSize: 13, color: 'var(--text-dim)', transition: 'all .2s',
+            }}
+          >
+            {theme === 'dark' ? '☀' : '☾'}
           </button>
 
           {/* Language toggle */}
