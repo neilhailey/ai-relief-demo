@@ -248,16 +248,11 @@ async def generate_heightmap(
     source_image: Path,
     size: str = "1024x1024",
 ) -> Path:
-    """Generate a grayscale heightmap using images.generate().
+    """Generate a grayscale heightmap using images.edit() with the selected image.
 
-    Previously used images.edit() with the selected image as input, but that
-    endpoint consistently produced a rectangular patch artifact in the centre of
-    the heightmap (an internal tiling boundary of the gpt-image-1 edit model)
-    which was then baked visibly into the STL mesh geometry.
-
-    images.generate() with the enhanced prompt produces clean, artifact-free
-    heightmaps. The enhanced prompt already captures the key structural features
-    of the selected image, so the depth map quality is maintained.
+    Using images.edit() ensures the heightmap preserves the exact composition
+    and pose of the variation the user selected.  The tile-seam artifact that
+    previously affected this approach is corrected by _fix_heightmap_artifact().
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -266,16 +261,27 @@ async def generate_heightmap(
     from openai import AsyncOpenAI
     client = AsyncOpenAI(api_key=api_key)
 
-    # Apply the same framing prefix so the heightmap subject isn't cropped either
-    heightmap_prompt = _FRAMING_PREFIX + _HEIGHTMAP_TEMPLATE.format(subject=prompt)
-    logger.info("Generating heightmap  size=%s  prompt: %s …", size, prompt[:60])
-
-    response = await client.images.generate(
-        model="gpt-image-1",
-        prompt=heightmap_prompt,
-        n=1,
-        size=size,
+    heightmap_prompt = (
+        "Convert this image into a grayscale CNC depth map suitable for bas-relief carving. "
+        "STRICT RULES: "
+        "(1) Preserve the exact composition and pose of the subject from the input image — do not change the pose. "
+        "(2) Background is pure solid black #000000 — no grey, no texture outside the subject. "
+        "(3) The subject is bright white-to-grey encoding elevation: "
+        "highest raised features are brightest white, shallower areas lighter grey. "
+        "(4) Smooth continuous gradients — no shadows, no cast shadows, no specular highlights. "
+        "(5) Sharp boundary between subject and black background. "
+        "Output looks like a topographic height-map: brightness encodes height above a flat black plane."
     )
+    logger.info("Generating heightmap from selected image  prompt: %s …", prompt[:60])
+
+    with open(source_image, "rb") as f:
+        response = await client.images.edit(
+            model="gpt-image-1",
+            image=f,
+            prompt=heightmap_prompt,
+            n=1,
+            size="1024x1024",
+        )
     img = response.data[0]
     image_data = img.b64_json or ""
     if not image_data:
@@ -285,7 +291,7 @@ async def generate_heightmap(
     path.write_bytes(base64.b64decode(image_data))
     logger.info("Heightmap saved → %s", path)
 
-    # Remove dark tile-seam artifact from gpt-image-1
+    # Remove dark tile-seam artifact that images.edit() sometimes produces
     _fix_heightmap_artifact(path)
 
     return path
