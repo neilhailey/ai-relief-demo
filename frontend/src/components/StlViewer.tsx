@@ -158,24 +158,9 @@ export function StlViewer({ url, scaleZ = 1, relief = false, materialPreset, onR
     rimLightRef.current = rim
 
     const controls = new OrbitControls(camera, renderer.domElement)
-    controls.enableDamping  = true
-    controls.dampingFactor  = 0.06
-    controls.autoRotate     = true
-    controls.autoRotateSpeed = 1.0   // ~0.5 RPM — slow turntable
+    controls.enableDamping = true
+    controls.dampingFactor = 0.06
     controlRef.current = controls
-
-    // Pause rotation while the user is dragging; resume 2 s after release.
-    let resumeTimer: ReturnType<typeof setTimeout> | null = null
-    function onPointerDown() {
-      controls.autoRotate = false
-      if (resumeTimer) { clearTimeout(resumeTimer); resumeTimer = null }
-    }
-    function onPointerUp() {
-      if (resumeTimer) clearTimeout(resumeTimer)
-      resumeTimer = setTimeout(() => { controls.autoRotate = true }, 2000)
-    }
-    renderer.domElement.addEventListener('pointerdown', onPointerDown)
-    renderer.domElement.addEventListener('pointerup',   onPointerUp)
 
     let raf: number
     function animate() {
@@ -196,9 +181,6 @@ export function StlViewer({ url, scaleZ = 1, relief = false, materialPreset, onR
     return () => {
       cancelAnimationFrame(raf)
       window.removeEventListener('resize', onResize)
-      renderer.domElement.removeEventListener('pointerdown', onPointerDown)
-      renderer.domElement.removeEventListener('pointerup',   onPointerUp)
-      if (resumeTimer) clearTimeout(resumeTimer)
       controls.dispose()
       renderer.dispose()
       if (mount && renderer.domElement.parentNode === mount)
