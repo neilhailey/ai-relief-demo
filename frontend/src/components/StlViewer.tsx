@@ -30,7 +30,11 @@ export function StlViewer({ url, scaleZ = 1, relief = false, materialPreset, onR
   const planeRef     = useRef<THREE.Mesh | null>(null)
   const sizeRef      = useRef(new THREE.Vector3())
   const firstLoadRef = useRef(true)
-  const targetYRef   = useRef(0)   // world-space Y of orbit center (set after each model load)
+  const targetYRef   = useRef(0)
+  // Light refs for per-material dynamic adjustment
+  const keyLightRef  = useRef<THREE.DirectionalLight | null>(null)
+  const fillLightRef = useRef<THREE.DirectionalLight | null>(null)
+  const rimLightRef  = useRef<THREE.DirectionalLight | null>(null)
 
   // Stable refs so closures always read the latest callback / scaleZ / relief
   const onReadyRef     = useRef(onReady)
@@ -55,14 +59,47 @@ export function StlViewer({ url, scaleZ = 1, relief = false, materialPreset, onR
 
   // ── Live material update — swap material properties without reloading STL ─
   useEffect(() => {
-    const mesh = meshRef.current
-    if (!mesh) return
-    const p = materialPreset ?? MATERIAL_PRESETS[0]
-    const mat = mesh.material as THREE.MeshStandardMaterial
+    const mesh  = meshRef.current
+    const scene = sceneRef.current
+    if (!mesh || !scene) return
+    const p   = materialPreset ?? MATERIAL_PRESETS[0]
+    const mat = mesh.material as THREE.MeshPhysicalMaterial
     mat.color.setHex(p.color)
-    mat.roughness  = p.roughness
-    mat.metalness  = p.metalness
-    mat.needsUpdate = true
+    mat.roughness          = p.roughness
+    mat.metalness          = p.metalness
+    mat.clearcoat          = p.clearcoat
+    mat.clearcoatRoughness = p.clearcoatRoughness
+    mat.envMapIntensity    = p.envMapIntensity
+    mat.needsUpdate        = true
+
+    // Tune lights per material category for more convincing looks
+    const key  = keyLightRef.current
+    const fill = fillLightRef.current
+    const rim  = rimLightRef.current
+    if (key && fill && rim) {
+      if (p.category === 'metal') {
+        key.intensity  = 2.8;  key.color.set(0xffffff)
+        fill.intensity = 0.4;  fill.color.set(0xd8eaff)
+        rim.intensity  = 0.9;  rim.color.set(0xffffff)
+        scene.environmentIntensity = 2.0
+      } else if (p.category === 'resin') {
+        key.intensity  = 2.2;  key.color.set(0xfff8f0)
+        fill.intensity = 0.5;  fill.color.set(0xddeeff)
+        rim.intensity  = 0.6;  rim.color.set(0xffffff)
+        scene.environmentIntensity = 1.8
+      } else if (p.category === 'stone') {
+        key.intensity  = 2.0;  key.color.set(0xfff4e0)
+        fill.intensity = 0.6;  fill.color.set(0xd0d8f0)
+        rim.intensity  = 0.3;  rim.color.set(0xffffff)
+        scene.environmentIntensity = 0.8
+      } else {
+        // wood — warm, soft
+        key.intensity  = 2.0;  key.color.set(0xffe8c8)
+        fill.intensity = 0.5;  fill.color.set(0xd0c8b0)
+        rim.intensity  = 0.25; rim.color.set(0xfff0d0)
+        scene.environmentIntensity = 0.6
+      }
+    }
   }, [materialPreset])
 
   // ── Scene init (once on mount) ────────────────────────────────────────────
@@ -79,7 +116,7 @@ export function StlViewer({ url, scaleZ = 1, relief = false, materialPreset, onR
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type    = THREE.PCFSoftShadowMap
     renderer.toneMapping       = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.2
+    renderer.toneMappingExposure = 1.4
     mount.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
@@ -87,24 +124,31 @@ export function StlViewer({ url, scaleZ = 1, relief = false, materialPreset, onR
     scene.background = new THREE.Color(0x0d1117)
     sceneRef.current = scene
 
-    // PMREM environment for realistic PBR reflections (especially metals)
+    // PMREM environment — provides IBL reflections for metals and clearcoat
     const pmrem = new THREE.PMREMGenerator(renderer)
     scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    scene.environmentIntensity = 1.5
     pmrem.dispose()
 
-    // near/far are updated per-model after geometry loads
     const camera = new THREE.PerspectiveCamera(42, W / H, 0.1, 10000)
     cameraRef.current = camera
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.4))
-    const key = new THREE.DirectionalLight(0xfff3e0, 1.6)
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55))
+
+    const key = new THREE.DirectionalLight(0xfff4e8, 2.2)
     key.castShadow = true
-    key.shadow.mapSize.set(1024, 1024)
+    key.shadow.mapSize.set(2048, 2048)
+    key.shadow.bias = -0.0005
     scene.add(key)
-    const fill = new THREE.DirectionalLight(0x3b82f6, 0.3)
+    keyLightRef.current = key
+
+    const fill = new THREE.DirectionalLight(0xd0e8ff, 0.55)
     scene.add(fill)
-    const rim = new THREE.DirectionalLight(0xffffff, 0.15)
+    fillLightRef.current = fill
+
+    const rim = new THREE.DirectionalLight(0xffffff, 0.45)
     scene.add(rim)
+    rimLightRef.current = rim
 
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.enableDamping  = true
@@ -203,11 +247,14 @@ export function StlViewer({ url, scaleZ = 1, relief = false, materialPreset, onR
 
         // 4. Build mesh — scale is (1, 1, scaleZ) only; no normalisation factor needed
         const p = materialPresetRef.current
-        const material = new THREE.MeshStandardMaterial({
-          color:     p.color,
-          roughness: p.roughness,
-          metalness: p.metalness,
-          side:      THREE.DoubleSide,
+        const material = new THREE.MeshPhysicalMaterial({
+          color:              p.color,
+          roughness:          p.roughness,
+          metalness:          p.metalness,
+          clearcoat:          p.clearcoat,
+          clearcoatRoughness: p.clearcoatRoughness,
+          envMapIntensity:    p.envMapIntensity,
+          side:               THREE.DoubleSide,
         })
         const mesh = new THREE.Mesh(geometry, material)
         mesh.castShadow    = true
