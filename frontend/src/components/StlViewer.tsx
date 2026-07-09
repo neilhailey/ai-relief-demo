@@ -4,6 +4,7 @@ import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { MATERIAL_PRESETS, type MaterialPreset } from './materialPresets'
+import { getTextures } from './textureGenerators'
 export type { MaterialPreset, MaterialCategory } from './materialPresets'
 export { MATERIAL_PRESETS, CATEGORY_LABELS } from './materialPresets'
 
@@ -64,7 +65,13 @@ export function StlViewer({ url, scaleZ = 1, relief = false, materialPreset, onR
     if (!mesh || !scene) return
     const p   = materialPreset ?? MATERIAL_PRESETS[0]
     const mat = mesh.material as THREE.MeshPhysicalMaterial
-    mat.color.setHex(p.color)
+    const tex = getTextures(p)
+    tex.map.repeat.set(tex.mapRepeat, tex.mapRepeat)
+    tex.normalMap.repeat.set(tex.mapRepeat, tex.mapRepeat)
+    mat.color.set(0xffffff)
+    mat.map                = tex.map
+    mat.normalMap          = tex.normalMap
+    mat.normalScale.set(tex.normalScale, tex.normalScale)
     mat.roughness          = p.roughness
     mat.metalness          = p.metalness
     mat.clearcoat          = p.clearcoat
@@ -245,10 +252,50 @@ export function StlViewer({ url, scaleZ = 1, relief = false, materialPreset, onR
         normBbox.getSize(normSize)
         sizeRef.current = normSize   // used by goToPreset (geometry space = ~100 units)
 
+        // 3b. Compute UV coordinates — STL files have none, so we project from position.
+        //     Relief panels are flat in XY → direct XY projection.
+        //     Arbitrary 3D models use triplanar box mapping keyed on the vertex normal.
+        {
+          const posAttr  = geometry.attributes.position
+          const normAttr = geometry.attributes.normal
+          const uvData   = new Float32Array(posAttr.count * 2)
+          const bmin = normBbox.min
+          for (let i = 0; i < posAttr.count; i++) {
+            const px = posAttr.getX(i), py = posAttr.getY(i), pz = posAttr.getZ(i)
+            let u: number, v: number
+            if (reliefRef.current) {
+              u = (px - bmin.x) / normSize.x
+              v = (py - bmin.y) / normSize.y
+            } else {
+              const ax = Math.abs(normAttr?.getX(i) ?? 0)
+              const ay = Math.abs(normAttr?.getY(i) ?? 0)
+              const az = Math.abs(normAttr?.getZ(i) ?? 0)
+              if (ax >= ay && ax >= az) {
+                u = (pz - bmin.z) / normSize.z
+                v = (py - bmin.y) / normSize.y
+              } else if (ay >= ax && ay >= az) {
+                u = (px - bmin.x) / normSize.x
+                v = (pz - bmin.z) / normSize.z
+              } else {
+                u = (px - bmin.x) / normSize.x
+                v = (py - bmin.y) / normSize.y
+              }
+            }
+            uvData[i*2] = u; uvData[i*2+1] = v
+          }
+          geometry.setAttribute('uv', new THREE.BufferAttribute(uvData, 2))
+        }
+
         // 4. Build mesh — scale is (1, 1, scaleZ) only; no normalisation factor needed
-        const p = materialPresetRef.current
+        const p   = materialPresetRef.current
+        const tex = getTextures(p)
+        tex.map.repeat.set(tex.mapRepeat, tex.mapRepeat)
+        tex.normalMap.repeat.set(tex.mapRepeat, tex.mapRepeat)
         const material = new THREE.MeshPhysicalMaterial({
-          color:              p.color,
+          color:              0xffffff,   // let the albedo map carry the color
+          map:                tex.map,
+          normalMap:          tex.normalMap,
+          normalScale:        new THREE.Vector2(tex.normalScale, tex.normalScale),
           roughness:          p.roughness,
           metalness:          p.metalness,
           clearcoat:          p.clearcoat,
