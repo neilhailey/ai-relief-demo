@@ -1,5 +1,8 @@
 import { Suspense, lazy, useState, useRef } from 'react'
 import type { CameraPreset } from './StlViewer'
+import type { MaterialPreset } from './materialPresets'
+import { MATERIAL_PRESETS } from './materialPresets'
+import { MaterialPicker } from './MaterialPicker'
 import { PublishButton } from './PublishButton'
 import { useLang } from '../contexts/LanguageContext'
 
@@ -18,9 +21,10 @@ interface Props {
 
 export function Model3dResultStep({ prompt, stlUrl, renderedUrl, dbId, isPublic, onPublish, onStartOver }: Props) {
   const { t } = useLang()
-  const [activeView, setActiveView] = useState<CameraPreset>('iso')
-  const [loaded,     setLoaded]     = useState(false)
-  const [loadError,  setLoadError]  = useState<string | null>(null)
+  const [activeView,     setActiveView]     = useState<CameraPreset>('iso')
+  const [materialPreset, setMaterialPreset] = useState<MaterialPreset>(MATERIAL_PRESETS[0])
+  const [loaded,         setLoaded]         = useState(false)
+  const [loadError,      setLoadError]      = useState<string | null>(null)
   const goToPresetRef = useRef<((p: CameraPreset) => void) | null>(null)
 
   function handleViewButton(preset: CameraPreset) {
@@ -123,12 +127,25 @@ export function Model3dResultStep({ prompt, stlUrl, renderedUrl, dbId, isPublic,
         <Suspense fallback={null}>
           <StlViewer
             url={stlUrl} scaleZ={1.0}
+            materialPreset={materialPreset}
             onReady={fn => { goToPresetRef.current = fn }}
             onLoadStart={() => {}}
             onLoadEnd={() => setLoaded(true)}
             onLoadError={msg => setLoadError(msg)}
           />
         </Suspense>
+
+        {/* Material picker — bottom-left overlay */}
+        {loaded && (
+          <div style={{
+            position: 'absolute', bottom: 16, left: 16, zIndex: 10,
+            background: 'rgba(10,13,18,.80)', backdropFilter: 'blur(10px)',
+            border: '1px solid var(--border)', borderRadius: 10,
+            padding: '12px 14px', minWidth: 180,
+          }}>
+            <MaterialPicker value={materialPreset} onChange={setMaterialPreset} />
+          </div>
+        )}
 
         {!loaded && !loadError && (
           <div style={{

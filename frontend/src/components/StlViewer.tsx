@@ -2,20 +2,25 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { MATERIAL_PRESETS, type MaterialPreset } from './materialPresets'
+export type { MaterialPreset, MaterialCategory } from './materialPresets'
+export { MATERIAL_PRESETS, CATEGORY_LABELS } from './materialPresets'
 
 export type CameraPreset = 'iso' | 'top' | 'front' | 'right'
 
 interface Props {
   url: string
-  scaleZ?: number          // live depth multiplier — applied without reloading STL
-  relief?: boolean         // true = apply -π/2 X-rotation for flat bas-reliefs; false = full 3D model (default)
+  scaleZ?: number           // live depth multiplier — applied without reloading STL
+  relief?: boolean          // true = apply -π/2 X-rotation for flat bas-reliefs; false = full 3D model (default)
+  materialPreset?: MaterialPreset
   onReady?: (goToPreset: (preset: CameraPreset) => void) => void
   onLoadStart?: () => void
   onLoadEnd?: () => void
   onLoadError?: (err: string) => void
 }
 
-export function StlViewer({ url, scaleZ = 1, relief = false, onReady, onLoadStart, onLoadEnd, onLoadError }: Props) {
+export function StlViewer({ url, scaleZ = 1, relief = false, materialPreset, onReady, onLoadStart, onLoadEnd, onLoadError }: Props) {
   const mountRef     = useRef<HTMLDivElement>(null)
   const rendererRef  = useRef<THREE.WebGLRenderer | null>(null)
   const sceneRef     = useRef<THREE.Scene | null>(null)
@@ -32,19 +37,33 @@ export function StlViewer({ url, scaleZ = 1, relief = false, onReady, onLoadStar
   const onLoadStartRef = useRef(onLoadStart)
   const onLoadEndRef   = useRef(onLoadEnd)
   const onLoadErrorRef = useRef(onLoadError)
-  const scaleZRef      = useRef(scaleZ)
-  const reliefRef      = useRef(relief)
+  const scaleZRef          = useRef(scaleZ)
+  const reliefRef          = useRef(relief)
+  const materialPresetRef  = useRef<MaterialPreset>(materialPreset ?? MATERIAL_PRESETS[0])
   useEffect(() => { onReadyRef.current     = onReady     }, [onReady])
   useEffect(() => { onLoadStartRef.current = onLoadStart }, [onLoadStart])
   useEffect(() => { onLoadEndRef.current   = onLoadEnd   }, [onLoadEnd])
   useEffect(() => { onLoadErrorRef.current = onLoadError }, [onLoadError])
   useEffect(() => { scaleZRef.current      = scaleZ      }, [scaleZ])
   useEffect(() => { reliefRef.current      = relief      }, [relief])
+  useEffect(() => { materialPresetRef.current = materialPreset ?? MATERIAL_PRESETS[0] }, [materialPreset])
 
   // ── Live scaleZ update — no geometry reload needed ────────────────────────
   useEffect(() => {
     if (meshRef.current) meshRef.current.scale.z = scaleZ
   }, [scaleZ])
+
+  // ── Live material update — swap material properties without reloading STL ─
+  useEffect(() => {
+    const mesh = meshRef.current
+    if (!mesh) return
+    const p = materialPreset ?? MATERIAL_PRESETS[0]
+    const mat = mesh.material as THREE.MeshStandardMaterial
+    mat.color.setHex(p.color)
+    mat.roughness  = p.roughness
+    mat.metalness  = p.metalness
+    mat.needsUpdate = true
+  }, [materialPreset])
 
   // ── Scene init (once on mount) ────────────────────────────────────────────
   useEffect(() => {
@@ -59,12 +78,19 @@ export function StlViewer({ url, scaleZ = 1, relief = false, onReady, onLoadStar
     renderer.setSize(W, H)
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type    = THREE.PCFSoftShadowMap
+    renderer.toneMapping       = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.2
     mount.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0x0d1117)
     sceneRef.current = scene
+
+    // PMREM environment for realistic PBR reflections (especially metals)
+    const pmrem = new THREE.PMREMGenerator(renderer)
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture
+    pmrem.dispose()
 
     // near/far are updated per-model after geometry loads
     const camera = new THREE.PerspectiveCamera(42, W / H, 0.1, 10000)
@@ -176,8 +202,12 @@ export function StlViewer({ url, scaleZ = 1, relief = false, onReady, onLoadStar
         sizeRef.current = normSize   // used by goToPreset (geometry space = ~100 units)
 
         // 4. Build mesh — scale is (1, 1, scaleZ) only; no normalisation factor needed
-        const material = new THREE.MeshPhongMaterial({
-          color: 0xc8922a, specular: 0x2a1a08, shininess: 18, side: THREE.DoubleSide,
+        const p = materialPresetRef.current
+        const material = new THREE.MeshStandardMaterial({
+          color:     p.color,
+          roughness: p.roughness,
+          metalness: p.metalness,
+          side:      THREE.DoubleSide,
         })
         const mesh = new THREE.Mesh(geometry, material)
         mesh.castShadow    = true

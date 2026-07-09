@@ -1,5 +1,8 @@
 import { Suspense, lazy, useState, useCallback, useRef } from 'react'
 import type { CameraPreset } from './StlViewer'
+import type { MaterialPreset } from './materialPresets'
+import { MATERIAL_PRESETS } from './materialPresets'
+import { MaterialPicker } from './MaterialPicker'
 import { ModelBuildingOverlay } from './LoadingVibes'
 import { useLang } from '../contexts/LanguageContext'
 
@@ -28,8 +31,9 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
   const [detailEnhance, setDetailEnhance] = useState(25)
   const [replaceBelow,  setReplaceBelow]  = useState(5)
   const [draftAngle,    setDraftAngle]    = useState(10)
-  const [currentStlUrl, setCurrentStlUrl] = useState(initialStlUrl)
-  const [updating,      setUpdating]      = useState(false)
+  const [currentStlUrl, setCurrentStlUrl]   = useState(initialStlUrl)
+  const [materialPreset, setMaterialPreset] = useState<MaterialPreset>(MATERIAL_PRESETS[0])
+  const [updating,      setUpdating]        = useState(false)
   const [modelLoading,  setModelLoading]  = useState(true)
   const [activeView,    setActiveView]    = useState<CameraPreset>('iso')
   const debounceRef   = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -124,6 +128,10 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
 
         <div style={{ flex: 1 }} />
 
+        {/* Material picker */}
+        <div style={{ height: 1, background: 'var(--border)', margin: '8px 0 16px' }} />
+        <MaterialPicker value={materialPreset} onChange={setMaterialPreset} />
+
         {/* Heightmap preview */}
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.05em' }}>
@@ -214,6 +222,7 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
             url={currentStlUrl}
             scaleZ={scaleZ / 100}
             relief
+            materialPreset={materialPreset}
             onReady={fn => { goToPresetRef.current = fn }}
             onLoadStart={() => {}}
             onLoadEnd={() => setModelLoading(false)}
