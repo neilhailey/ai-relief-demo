@@ -5,7 +5,7 @@ from pathlib import Path
 import logging
 
 import numpy as np
-from PIL import Image, ImageFilter
+from PIL import Image
 
 logger = logging.getLogger(__name__)
 
@@ -219,33 +219,39 @@ async def enhance_uploaded_for_carving(
     return enhanced_path, subject
 
 
-def _fix_heightmap_artifact(path: Path) -> None:
+def _to_relief_heightmap(path: Path, detail: float = 0.35, edge_px: float = 40.0) -> None:
     """
-    Post-process a generated heightmap to remove the dark rectangular tile-seam
-    artifact that gpt-image-1 sometimes produces at internal 512 px boundaries.
+    Turn the model's output into a real heightmap, in place.
 
-    Strategy: find pixels significantly darker than their local neighbourhood
-    (estimated by a wide Gaussian blur) and lift them to match.  The pure-black
-    background outside the subject is excluded so only in-subject artifacts are
-    corrected.
+    Image models don't produce true depth maps: they return a lit render of the
+    sculpture that is near-white almost everywhere, which flattens into a
+    plateau once mapped to height. Instead, build height from:
+      - the subject silhouette (rounded edges levelling off edge_px inside), for volume
+      - broad shading, for large-scale form
+      - local light/dark (high-pass), for fine detail like scales, eyes and fin rays
     """
-    img = Image.open(path).convert("L")
-    arr = np.array(img, dtype=np.float32)
+    from scipy import ndimage as ndi
 
-    # Wide Gaussian → local average brightness at every pixel
-    local_avg = np.array(img.filter(ImageFilter.GaussianBlur(radius=22)), dtype=np.float32)
+    lum = np.asarray(Image.open(path).convert("L"), dtype=np.float64) / 255.0
 
-    # Mask: ≥25 % darker than local average AND in a real-content region (not bg)
-    mask = (arr < local_avg * 0.75) & (local_avg > 20)
+    # Subject = everything not connected to the dark border
+    labels, _ = ndi.label(lum < 0.12)
+    border = np.unique(np.concatenate([labels[0], labels[-1], labels[:, 0], labels[:, -1]]))
+    background = np.isin(labels, border[border > 0])
+    mask = ndi.binary_fill_holes(ndi.binary_opening(~background, iterations=2))
 
-    fixed = arr.copy()
-    fixed[mask] = local_avg[mask] * 0.90   # lift to 90 % of expected value
+    dist = ndi.distance_transform_edt(mask)
+    t = np.clip(dist / edge_px, 0.0, 1.0)
+    base = ndi.gaussian_filter(np.sqrt(1.0 - (1.0 - t) ** 2), 3)   # quarter-circle edge profile
 
-    # Gentle smooth to remove sharp edges at the repair boundary
-    result = Image.fromarray(np.clip(fixed, 0, 255).astype(np.uint8), mode="L")
-    result = result.filter(ImageFilter.GaussianBlur(radius=1))
-    result.save(path)
-    logger.info("Heightmap artifact fix: %d px corrected", int(mask.sum()))
+    low = ndi.gaussian_filter(lum, 12)
+    high = lum - ndi.gaussian_filter(lum, 5)
+
+    height = 0.25 + 0.45 * base + 0.20 * low + detail * high
+    # Floor of 0.12 keeps thin fin tips above the STL builder's background cut-off
+    height = np.where(mask, np.clip(height, 0.12, 1.0), 0.0)
+    Image.fromarray((height * 255).astype(np.uint8), mode="L").save(path)
+    logger.info("Relief heightmap: %d subject px", int(mask.sum()))
 
 
 async def generate_heightmap(
@@ -258,8 +264,8 @@ async def generate_heightmap(
     """Generate a grayscale heightmap using images.edit() with the selected image.
 
     Using images.edit() ensures the heightmap preserves the exact composition
-    and pose of the variation the user selected.  The tile-seam artifact that
-    previously affected this approach is corrected by _fix_heightmap_artifact().
+    and pose of the variation the user selected; _to_relief_heightmap() then
+    converts the result into actual heights.
     """
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
@@ -299,7 +305,6 @@ async def generate_heightmap(
     path.write_bytes(base64.b64decode(image_data))
     logger.info("Heightmap saved → %s", path)
 
-    # Remove dark tile-seam artifact that images.edit() sometimes produces
-    _fix_heightmap_artifact(path)
+    _to_relief_heightmap(path)
 
     return path

@@ -18,7 +18,7 @@ import logging
 from pathlib import Path
 
 import numpy as np
-from PIL import Image, ImageFilter, ImageEnhance
+from PIL import Image, ImageFilter
 
 logger = logging.getLogger(__name__)
 
@@ -227,11 +227,13 @@ def _build(
     logger.info("Heightmap %dx%d → %dx%d  (%.2f:1)  carving %.0f×%.0f mm",
                 orig_w, orig_h, target_w, target_h, aspect, width_mm, height_mm)
 
+    # Sharpen rather than boost global contrast: contrast clipped bright
+    # subjects into a flat plateau and erased fine detail.
     if detail_enhance > 0:
-        img = ImageEnhance.Contrast(img).enhance(1.0 + detail_enhance * 3.0)
+        img = img.filter(ImageFilter.UnsharpMask(radius=2, percent=int(detail_enhance * 300), threshold=0))
 
     # Light blur: reduces staircase noise while keeping fine detail for G-code
-    img = img.filter(ImageFilter.GaussianBlur(radius=1.5))
+    img = img.filter(ImageFilter.GaussianBlur(radius=0.7))
 
     arr = np.array(img, dtype=np.float64) / 255.0
 
