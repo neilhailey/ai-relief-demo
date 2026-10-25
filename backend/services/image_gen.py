@@ -10,9 +10,9 @@ from PIL import Image, ImageFilter
 logger = logging.getLogger(__name__)
 
 # gpt-image-1 was retired by OpenAI; override with IMAGE_MODEL env var if needed.
-IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-2")
-# gpt-image-2 defaults to "low" quality, which loses fine relief detail.
-IMAGE_QUALITY = os.getenv("IMAGE_QUALITY", "high")
+IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-1.5")
+# Set explicitly: newer models default to "low" quality, which loses fine relief detail.
+IMAGE_QUALITY = os.getenv("IMAGE_QUALITY", "medium")
 
 # ── Visual render prompt (shown to user for selection) ──────────────────────
 # Framing prefix goes FIRST because gpt-image-1 weights early tokens most
