@@ -15,6 +15,7 @@ from services.image_gen import (
     describe_image_subject, enhance_uploaded_for_carving,
 )
 from services.stl_builder import depth_to_stl
+from services.storage import upload_relief_stl, upload_thumbnail
 from services.tripo import create_tripo_task, finish_tripo_task
 
 load_dotenv()
@@ -243,11 +244,18 @@ async def api_relief(req: ReliefRequest):
             draft_angle=req.draft_angle,
         )
 
+        # Permanent copies: Render's disk is wiped on restart/deploy
+        stl_public, thumb_public = await asyncio.gather(
+            upload_relief_stl(stl_path, req.session_id),
+            upload_thumbnail(image_path, req.session_id),
+        )
+
         import base64 as _b64
         heightmap_b64 = _b64.b64encode(heightmap_path.read_bytes()).decode()
         return {
             "heightmap_url": f"data:image/png;base64,{heightmap_b64}",
-            "stl_url":       f"/api/files/{req.session_id}/relief.stl",
+            "stl_url":       stl_public or f"/api/files/{req.session_id}/relief.stl",
+            "thumbnail_url": thumb_public,
         }
     except Exception as e:
         logger.error("Relief creation failed: %s", e)
@@ -274,8 +282,8 @@ async def api_update_relief(req: UpdateReliefRequest):
             replace_below=req.replace_below,
             draft_angle=req.draft_angle,
         )
-        # Return a cache-busted URL so the browser reloads the 3D viewer
-        return {"stl_url": f"/api/files/{req.session_id}/relief.stl"}
+        stl_public = await upload_relief_stl(stl_path, req.session_id)
+        return {"stl_url": stl_public or f"/api/files/{req.session_id}/relief.stl"}
     except Exception as e:
         logger.error("Relief update failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Relief update failed: {e}")

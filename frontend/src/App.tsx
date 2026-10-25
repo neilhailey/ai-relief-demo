@@ -27,6 +27,10 @@ type FlowMode = 'ai' | 'upload' | 'model3d'
 
 const API = import.meta.env.VITE_API_URL ?? ''
 
+// Backend returns permanent Supabase URLs when storage is configured,
+// otherwise a path on the (ephemeral) API server.
+const apiUrl = (u: string) => (u.startsWith('http') ? u : `${API}${u}`)
+
 async function apiFetch<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API}${path}`, {
     method: 'POST',
@@ -330,7 +334,7 @@ export default function App() {
     if (!session || session.selectedIndex === null) return
     setLoading(true); setError(null)
     try {
-      const data = await apiFetch<{ heightmap_url: string; stl_url: string }>(
+      const data = await apiFetch<{ heightmap_url: string; stl_url: string; thumbnail_url: string | null }>(
         '/api/relief', {
           session_id:     session.sessionId,
           image_index:    session.selectedIndex,
@@ -346,14 +350,14 @@ export default function App() {
       const updatedSession: SessionState = {
         ...session,
         heightmapUrl: data.heightmap_url,
-        stlUrl:       `${API}${data.stl_url}`,
+        stlUrl:       apiUrl(data.stl_url),
       }
       setSession(updatedSession)
       addCreation({
         type:      'relief',
         prompt:    session.prompt,
         flowMode,
-        thumbnail: selectedImg?.url ?? data.heightmap_url,
+        thumbnail: data.thumbnail_url ?? selectedImg?.url ?? data.heightmap_url,
         session:   updatedSession,
       })
       setStep(4)
@@ -368,7 +372,7 @@ export default function App() {
     const data = await apiFetch<{ stl_url: string }>(
       '/api/update-relief', { session_id: session.sessionId, ...params },
     )
-    return `${API}${data.stl_url}`
+    return apiUrl(data.stl_url)
   }
 
   function handleRegenerate() {
@@ -632,7 +636,6 @@ export default function App() {
         {step === 4 && flowMode !== 'model3d' && session && session.heightmapUrl && session.stlUrl && selectedImage && (
           <ReliefStep
             prompt={session.prompt}
-            heightmapUrl={session.heightmapUrl}
             stlUrl={session.stlUrl}
             imageUrl={selectedImage.url}
             sessionId={session.sessionId}

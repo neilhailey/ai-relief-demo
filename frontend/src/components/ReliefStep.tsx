@@ -10,12 +10,18 @@ const StlViewer = lazy(() => import('./StlViewer').then(m => ({ default: m.StlVi
 
 interface Props {
   prompt: string
-  heightmapUrl: string
   stlUrl: string
   imageUrl: string
   sessionId: string
   onStartOver: () => void
   onUpdateStl: (params: SliderParams) => Promise<string>
+}
+
+// Cross-origin links ignore the `download` attribute, so ask Supabase Storage
+// to send the STL as an attachment instead of opening it in the tab.
+function downloadHref(url: string): string {
+  const base = url.split('?')[0]
+  return base.includes('/storage/v1/object/public/') ? `${base}?download=relief.stl` : base
 }
 
 export interface SliderParams {
@@ -25,7 +31,7 @@ export interface SliderParams {
   draft_angle: number
 }
 
-export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageUrl, onStartOver, onUpdateStl }: Props) {
+export function ReliefStep({ prompt, stlUrl: initialStlUrl, imageUrl, onStartOver, onUpdateStl }: Props) {
   const { t } = useLang()
   const [scaleZ,        setScaleZ]        = useState(100)
   const [detailEnhance, setDetailEnhance] = useState(25)
@@ -132,13 +138,13 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
         <div style={{ height: 1, background: 'var(--border)', margin: '8px 0 16px' }} />
         <MaterialPicker value={materialPreset} onChange={setMaterialPreset} />
 
-        {/* Heightmap preview */}
+        {/* Selected design (the raw heightmap looks distorted to users) */}
         <div style={{ marginTop: 16 }}>
           <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.05em' }}>
-            {t.heightmapLabel}
+            {t.designLabel}
           </div>
           <img
-            src={heightmapUrl} alt={t.heightmapLabel}
+            src={imageUrl} alt={t.designLabel}
             style={{ width: '100%', borderRadius: 6, border: '1px solid var(--border)' }}
           />
         </div>
@@ -146,7 +152,7 @@ export function ReliefStep({ prompt, heightmapUrl, stlUrl: initialStlUrl, imageU
         {/* Downloads */}
         <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <a
-            href={currentStlUrl.split('?')[0]}
+            href={downloadHref(currentStlUrl)}
             download="relief.stl"
             style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
