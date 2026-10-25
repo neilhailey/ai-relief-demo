@@ -9,6 +9,9 @@ from PIL import Image, ImageFilter
 
 logger = logging.getLogger(__name__)
 
+# gpt-image-1 was retired by OpenAI; override with IMAGE_MODEL env var if needed.
+IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-2")
+
 # ── Visual render prompt (shown to user for selection) ──────────────────────
 # Framing prefix goes FIRST because gpt-image-1 weights early tokens most
 # heavily. Appending framing at the end (suffix) is routinely ignored.
@@ -111,7 +114,7 @@ async def generate_images(
     async def _gen(styled_prompt: str, idx: int) -> dict:
         logger.info("Generating visual image %d  size=%s …", idx, size)
         response = await client.images.generate(
-            model="gpt-image-1",
+            model=IMAGE_MODEL,
             prompt=styled_prompt,
             n=1,
             size=size,
@@ -194,7 +197,7 @@ async def enhance_uploaded_for_carving(
 
     with open(source_image, "rb") as f:
         response = await client.images.edit(
-            model="gpt-image-1",
+            model=IMAGE_MODEL,
             image=f,
             prompt=enhance_prompt_text,
             n=1,
@@ -276,7 +279,7 @@ async def generate_heightmap(
 
     with open(source_image, "rb") as f:
         response = await client.images.edit(
-            model="gpt-image-1",
+            model=IMAGE_MODEL,
             image=f,
             prompt=heightmap_prompt,
             n=1,
