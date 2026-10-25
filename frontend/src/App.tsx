@@ -1,12 +1,12 @@
 /// <reference types="vite/client" />
 import { useState, useEffect } from 'react'
 import type { SessionState, Creation, BackgroundJob } from './types'
-import type { User } from '@supabase/supabase-js'
-import { supabase, saveCreation, loadCreations, uploadDataUrl } from './lib/supabase'
-import { AuthModal } from './components/AuthModal'
+import { saveCreation, loadCreations, uploadDataUrl } from './lib/supabase'
 import { GalleryPage } from './components/GalleryPage'
 import type { DbCreation } from './lib/supabase'
 import { useLang } from './contexts/LanguageContext'
+import { useAuth } from './contexts/AuthContext'
+import { SiteNav } from './components/SiteNav'
 import { StepIndicator } from './components/StepIndicator'
 import { PromptStep } from './components/PromptStep'
 import type { Orientation } from './components/PromptStep'
@@ -20,6 +20,7 @@ import { Model3dGeneratingStep } from './components/Model3dGeneratingStep'
 import { Model3dResultStep } from './components/Model3dResultStep'
 import { RecentPanel } from './components/RecentPanel'
 import { FlappyBird } from './components/FlappyBird'
+import { CommunityGallery } from './components/CommunityGallery'
 
 type Step     = 1 | 2 | 3 | 4
 type FlowMode = 'ai' | 'upload' | 'model3d'
@@ -54,47 +55,29 @@ export default function App() {
   const [showGame,   setShowGame]   = useState(false)
   const [showGallery,setShowGallery]= useState(false)
 
-  // ── Theme ─────────────────────────────────────────────────────────────────
-  const [theme, setTheme] = useState<'dark' | 'light'>(
-    () => (document.documentElement.dataset.theme as 'dark' | 'light') ?? 'dark'
-  )
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme
-    localStorage.setItem('theme', theme)
-  }, [theme])
+  // ── Auth + language (auth/theme now come from shared contexts) ─────────────
+  const { user, promptSignIn } = useAuth()
+  const { t } = useLang()
 
-  // ── Auth + language ───────────────────────────────────────────────────────
-  const [user,      setUser]      = useState<User | null>(null)
-  const [showAuth,  setShowAuth]  = useState(false)
-  const { lang, t, toggle: toggleLang } = useLang()
-
+  // Reload the signed-in user's creations whenever auth changes.
   useEffect(() => {
-    if (!supabase) return
-    // Restore session on load
-    supabase.auth.getUser().then(({ data }) => setUser(data.user ?? null))
-    // Listen for sign in / sign out
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_evt, session) => {
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        // Reload DB creations when user signs in
-        loadCreations().then(rows => {
-          setCreations(rows.map(r => ({
-            id:        r.id,
-            dbId:      r.id,
-            type:      r.type,
-            prompt:    r.prompt,
-            flowMode:  r.flow_mode as FlowMode,
-            thumbnail: r.thumbnail ?? null,
-            session:   (r.session ?? {}) as unknown as SessionState,
-            isPublic:  r.is_public ?? false,
-          })))
-        })
-      } else {
-        setCreations([])
-      }
-    })
-    return () => subscription.unsubscribe()
-  }, [])
+    if (user) {
+      loadCreations().then(rows => {
+        setCreations(rows.map(r => ({
+          id:        r.id,
+          dbId:      r.id,
+          type:      r.type,
+          prompt:    r.prompt,
+          flowMode:  r.flow_mode as FlowMode,
+          thumbnail: r.thumbnail ?? null,
+          session:   (r.session ?? {}) as unknown as SessionState,
+          isPublic:  r.is_public ?? false,
+        })))
+      })
+    } else {
+      setCreations([])
+    }
+  }, [user])
 
   async function persistCreation(c: Creation): Promise<string | null> {
     if (!user) return null
@@ -401,100 +384,20 @@ export default function App() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
 
-      {/* Header */}
-      <header style={{
-        background: 'var(--surface)', borderBottom: '1px solid var(--border)',
-        padding: '12px 24px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        flexShrink: 0,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            width: 30, height: 30, borderRadius: 6, background: 'var(--accent)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 14, fontWeight: 800, color: '#fff',
-          }}>W</div>
-          <span style={{ fontWeight: 700, fontSize: 15 }}>WeCarver</span>
-          <span style={{
-            fontSize: 10, padding: '2px 8px', borderRadius: 10,
-            background: 'rgba(37,99,235,.2)', color: 'var(--accent-glow)',
-            border: '1px solid rgba(59,130,246,.3)', fontWeight: 500,
-          }}>{t.appTagline}</span>
-        </div>
-
-        {/* Right side: language toggle + auth + recent */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-
-          {/* Gallery button */}
-          <button
-            onClick={() => setShowGallery(true)}
-            style={{
-              padding: '5px 13px', borderRadius: 20, cursor: 'pointer',
-              background: 'var(--surface2)', border: '1px solid var(--border)',
-              fontSize: 12, fontWeight: 600, color: 'var(--text-dim)',
-              transition: 'all .2s',
-            }}
-          >
-            🌐 {t.gallery}
-          </button>
-
-          {/* Theme toggle */}
-          <button
-            onClick={() => setTheme(prev => prev === 'dark' ? 'light' : 'dark')}
-            title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            style={{
-              padding: '5px 11px', borderRadius: 20, cursor: 'pointer',
-              background: 'var(--surface2)', border: '1px solid var(--border)',
-              fontSize: 12, fontWeight: 700, color: 'var(--text-dim)',
-              letterSpacing: '.02em', transition: 'all .2s',
-              display: 'flex', alignItems: 'center', gap: 5,
-            }}
-          >
-            <span style={{ fontSize: 14 }}>{theme === 'dark' ? '☀' : '☾'}</span>
-            {theme === 'dark' ? 'Light' : 'Dark'}
-          </button>
-
-          {/* Language toggle */}
-          <button
-            onClick={toggleLang}
-            title={lang === 'en' ? '切换到中文' : 'Switch to English'}
-            style={{
-              padding: '5px 11px', borderRadius: 20, cursor: 'pointer',
-              background: 'var(--surface2)', border: '1px solid var(--border)',
-              fontSize: 12, fontWeight: 700, color: 'var(--text-dim)',
-              letterSpacing: '.02em', transition: 'all .2s',
-            }}
-          >
-            {lang === 'en' ? '中文' : 'EN'}
-          </button>
-
-          {/* Auth button */}
-          {supabase && (
-            user ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {user.email}
-                </span>
-                <button
-                  onClick={() => supabase?.auth.signOut()}
-                  style={{
-                    padding: '5px 11px', borderRadius: 20, cursor: 'pointer',
-                    background: 'var(--surface2)', border: '1px solid var(--border)',
-                    fontSize: 11, fontWeight: 600, color: 'var(--text-dim)',
-                  }}
-                >{t.signOut}</button>
-              </div>
-            ) : (
-              <button
-                onClick={() => setShowAuth(true)}
-                style={{
-                  padding: '6px 14px', borderRadius: 20, cursor: 'pointer',
-                  background: 'var(--accent)', border: 'none',
-                  fontSize: 12, fontWeight: 700, color: '#fff',
-                }}
-              >{t.signIn}</button>
-            )
-          )}
+      {/* Header — shared top nav (AI Craft | Projects) plus AI-specific extras */}
+      <SiteNav rightExtra={<>
+        {/* My Creations (AI gallery overlay) */}
+        <button
+          onClick={() => setShowGallery(true)}
+          style={{
+            padding: '5px 13px', borderRadius: 20, cursor: 'pointer',
+            background: 'var(--surface2)', border: '1px solid var(--border)',
+            fontSize: 12, fontWeight: 600, color: 'var(--text-dim)',
+            transition: 'all .2s',
+          }}
+        >
+          📁 My Creations
+        </button>
 
         {/* Recent creations button */}
         {creations.length > 0 && (
@@ -523,8 +426,7 @@ export default function App() {
             </span>
           </button>
         )}
-        </div>{/* end right side */}
-      </header>
+      </>} />
 
       {/* Step indicator — advance visually through 3D model steps during background job */}
       {(() => {
@@ -562,7 +464,8 @@ export default function App() {
       )}
 
       {/* Main content */}
-      <main style={{ flex: 1, width: '100%', maxWidth: step === 4 ? '100%' : 960, margin: '0 auto' }}>
+      <main style={{ flex: 1, width: '100%' }}>
+        <div style={{ maxWidth: step === 4 ? '100%' : 960, margin: '0 auto' }}>
 
         {/* ── Flappy Bird (while 3D model runs OR while relief generates) ── */}
         {(() => {
@@ -757,6 +660,12 @@ export default function App() {
 
           </>)
         })()}
+        </div>
+
+        {/* ── Community gallery (inline, step 1 only) ── */}
+        {step === 1 && !(showGame && bgJob?.status === 'running') && (
+          <CommunityGallery user={user} onSignInRequired={promptSignIn} />
+        )}
       </main>
 
       {step !== 4 && (
@@ -931,14 +840,6 @@ export default function App() {
           creations={creations}
           onSelect={handleSelectCreation}
           onClose={() => setShowPanel(false)}
-        />
-      )}
-
-      {/* ── Auth modal ── */}
-      {showAuth && (
-        <AuthModal
-          onClose={() => setShowAuth(false)}
-          onSuccess={() => setShowAuth(false)}
         />
       )}
 

@@ -93,6 +93,92 @@ export async function loadGallery(): Promise<DbCreation[]> {
   return (data ?? []) as DbCreation[]
 }
 
+// ── Community Gallery with likes & saves ─────────────────────────────────────
+
+export interface GalleryItem extends Omit<DbCreation, 'session' | 'glb_url'> {
+  like_count: number
+  is_liked:   boolean
+  is_saved:   boolean
+}
+
+export async function loadGalleryWithLikes(userId: string | null): Promise<GalleryItem[]> {
+  if (!supabase) return []
+
+  const { data: creations, error } = await supabase
+    .from('creations')
+    .select('id, type, flow_mode, prompt, thumbnail, stl_url, published_at, created_at, user_id, is_public')
+    .eq('is_public', true)
+    .order('published_at', { ascending: false })
+    .limit(100)
+
+  if (error || !creations || creations.length === 0) return []
+
+  const ids = creations.map(c => c.id)
+
+  // Fetch all likes for these creations in one query
+  const { data: likes } = await supabase
+    .from('creation_likes')
+    .select('creation_id, user_id')
+    .in('creation_id', ids)
+
+  const countMap: Record<string, number> = {}
+  const userLikedSet = new Set<string>()
+  likes?.forEach(({ creation_id, user_id }) => {
+    countMap[creation_id] = (countMap[creation_id] ?? 0) + 1
+    if (userId && user_id === userId) userLikedSet.add(creation_id)
+  })
+
+  // Fetch current user's saves
+  const savedSet = new Set<string>()
+  if (userId) {
+    const { data: saves } = await supabase
+      .from('creation_saves')
+      .select('creation_id')
+      .eq('user_id', userId)
+      .in('creation_id', ids)
+    saves?.forEach(({ creation_id }) => savedSet.add(creation_id))
+  }
+
+  return creations.map(c => ({
+    ...(c as DbCreation),
+    like_count: countMap[c.id] ?? 0,
+    is_liked:   userLikedSet.has(c.id),
+    is_saved:   savedSet.has(c.id),
+  }))
+}
+
+export async function toggleLike(creationId: string, isCurrentlyLiked: boolean): Promise<boolean> {
+  if (!supabase) return false
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return false
+
+  if (isCurrentlyLiked) {
+    const { error } = await supabase.from('creation_likes')
+      .delete().eq('creation_id', creationId).eq('user_id', user.id)
+    return !error
+  } else {
+    const { error } = await supabase.from('creation_likes')
+      .insert({ creation_id: creationId, user_id: user.id })
+    return !error
+  }
+}
+
+export async function toggleSave(creationId: string, isCurrentlySaved: boolean): Promise<boolean> {
+  if (!supabase) return false
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return false
+
+  if (isCurrentlySaved) {
+    const { error } = await supabase.from('creation_saves')
+      .delete().eq('creation_id', creationId).eq('user_id', user.id)
+    return !error
+  } else {
+    const { error } = await supabase.from('creation_saves')
+      .insert({ creation_id: creationId, user_id: user.id })
+    return !error
+  }
+}
+
 // ── Storage helpers ───────────────────────────────────────────────────────────
 
 export async function uploadDataUrl(

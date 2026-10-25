@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { loadGallery, loadCreations, publishCreation, unpublishCreation, type DbCreation } from '../lib/supabase'
+import { loadCreations, publishCreation, unpublishCreation, type DbCreation } from '../lib/supabase'
 import type { User } from '@supabase/supabase-js'
 import { useLang } from '../contexts/LanguageContext'
 
@@ -9,20 +9,16 @@ interface Props {
   onLoad:  (creation: DbCreation) => void   // load a past creation into the viewer
 }
 
-type Tab = 'explore' | 'mine'
-
 export function GalleryPage({ user, onClose, onLoad }: Props) {
   const { t } = useLang()
-  const [tab,      setTab]      = useState<Tab>('explore')
   const [items,    setItems]    = useState<DbCreation[]>([])
   const [loading,  setLoading]  = useState(true)
   const [toggling, setToggling] = useState<string | null>(null)  // id being toggled
 
   useEffect(() => {
     setLoading(true)
-    const fetch = tab === 'explore' ? loadGallery() : loadCreations()
-    fetch.then(data => { setItems(data); setLoading(false) })
-  }, [tab])
+    loadCreations().then(data => { setItems(data); setLoading(false) })
+  }, [])
 
   async function handleTogglePublish(item: DbCreation) {
     setToggling(item.id)
@@ -69,35 +65,15 @@ export function GalleryPage({ user, onClose, onLoad }: Props) {
             background: 'none', border: 'none', color: 'var(--muted)',
             fontSize: 20, cursor: 'pointer', lineHeight: 1, padding: '2px 4px',
           }}>←</button>
-          <div style={{ display: 'flex', gap: 4, background: 'var(--surface2)', borderRadius: 10, padding: 4 }}>
-            {(['explore', 'mine'] as Tab[]).map(tab_ => (
-              <button
-                key={tab_}
-                onClick={() => setTab(tab_)}
-                style={{
-                  padding: '6px 16px', borderRadius: 7, border: 'none', cursor: 'pointer',
-                  fontSize: 13, fontWeight: 600,
-                  background: tab === tab_ ? 'var(--surface)' : 'transparent',
-                  color:      tab === tab_ ? 'var(--text)'    : 'var(--muted)',
-                  boxShadow:  tab === tab_ ? '0 1px 4px rgba(0,0,0,.3)' : 'none',
-                  transition: 'all .15s',
-                }}
-              >
-                {tab_ === 'explore' ? t.galleryExplore : t.galleryMine}
-              </button>
-            ))}
-          </div>
+          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>
+            {t.galleryMine}
+          </span>
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-            {tab === 'explore' ? t.galleryCommunity : t.gallerySaved(items.length)}
+            {t.gallerySaved(items.length)}
           </span>
         </div>
 
-        {tab === 'explore' && (
-          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-            {t.galleryClickHint}
-          </div>
-        )}
-        {tab === 'mine' && !user && (
+        {!user && (
           <div style={{ fontSize: 12, color: '#fdba74' }}>
             {t.gallerySignIn}
           </div>
@@ -116,14 +92,12 @@ export function GalleryPage({ user, onClose, onLoad }: Props) {
           </div>
         ) : items.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '80px 0', color: 'var(--muted)' }}>
-            <div style={{ fontSize: 40, marginBottom: 16 }}>
-              {tab === 'explore' ? '🌐' : '🎨'}
-            </div>
+            <div style={{ fontSize: 40, marginBottom: 16 }}>🎨</div>
             <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>
-              {tab === 'explore' ? t.galleryNoPublic : t.galleryNoMine}
+              {t.galleryNoMine}
             </div>
             <div style={{ fontSize: 13 }}>
-              {tab === 'explore' ? t.galleryBeFirst : t.gallerySignInSave}
+              {t.gallerySignInSave}
             </div>
           </div>
         ) : (
@@ -175,7 +149,7 @@ export function GalleryPage({ user, onClose, onLoad }: Props) {
                   }}>
                     {badge(item.type)}
                   </div>
-                  {tab === 'mine' && item.is_public && (
+                  {item.is_public && (
                     <div style={{
                       position: 'absolute', top: 8, right: 8,
                       fontSize: 10, padding: '2px 7px', borderRadius: 10,
@@ -218,24 +192,22 @@ export function GalleryPage({ user, onClose, onLoad }: Props) {
                       </a>
                     )}
 
-                    {/* Publish toggle (My Models only) */}
-                    {tab === 'mine' && (
-                      <button
-                        onClick={e => { e.stopPropagation(); handleTogglePublish(item) }}
-                        disabled={toggling === item.id}
-                        style={{
-                          flex: 1, padding: '7px 0',
-                          background: item.is_public ? 'rgba(5,150,105,.15)' : 'var(--surface2)',
-                          border: `1px solid ${item.is_public ? 'rgba(5,150,105,.4)' : 'var(--border)'}`,
-                          borderRadius: 6, cursor: 'pointer',
-                          fontSize: 11, fontWeight: 700,
-                          color: item.is_public ? '#6ee7b7' : 'var(--text-dim)',
-                          opacity: toggling === item.id ? 0.6 : 1,
-                        }}
-                      >
-                        {toggling === item.id ? '…' : item.is_public ? t.galleryPublished : t.galleryPublishBtn}
-                      </button>
-                    )}
+                    {/* Publish toggle */}
+                    <button
+                      onClick={e => { e.stopPropagation(); handleTogglePublish(item) }}
+                      disabled={toggling === item.id}
+                      style={{
+                        flex: 1, padding: '7px 0',
+                        background: item.is_public ? 'rgba(5,150,105,.15)' : 'var(--surface2)',
+                        border: `1px solid ${item.is_public ? 'rgba(5,150,105,.4)' : 'var(--border)'}`,
+                        borderRadius: 6, cursor: 'pointer',
+                        fontSize: 11, fontWeight: 700,
+                        color: item.is_public ? '#6ee7b7' : 'var(--text-dim)',
+                        opacity: toggling === item.id ? 0.6 : 1,
+                      }}
+                    >
+                      {toggling === item.id ? '…' : item.is_public ? t.galleryPublished : t.galleryPublishBtn}
+                    </button>
                   </div>
                 </div>
               </div>
