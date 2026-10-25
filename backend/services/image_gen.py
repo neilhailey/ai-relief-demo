@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 # gpt-image-1 was retired by OpenAI; override with IMAGE_MODEL env var if needed.
 IMAGE_MODEL = os.getenv("IMAGE_MODEL", "gpt-image-2")
+# gpt-image-2 defaults to "low" quality, which loses fine relief detail.
+IMAGE_QUALITY = os.getenv("IMAGE_QUALITY", "high")
 
 # ── Visual render prompt (shown to user for selection) ──────────────────────
 # Framing prefix goes FIRST because gpt-image-1 weights early tokens most
@@ -115,6 +117,7 @@ async def generate_images(
         logger.info("Generating visual image %d  size=%s …", idx, size)
         response = await client.images.generate(
             model=IMAGE_MODEL,
+            quality=IMAGE_QUALITY,
             prompt=styled_prompt,
             n=1,
             size=size,
@@ -198,6 +201,7 @@ async def enhance_uploaded_for_carving(
     with open(source_image, "rb") as f:
         response = await client.images.edit(
             model=IMAGE_MODEL,
+            quality=IMAGE_QUALITY,
             image=f,
             prompt=enhance_prompt_text,
             n=1,
@@ -280,6 +284,7 @@ async def generate_heightmap(
     with open(source_image, "rb") as f:
         response = await client.images.edit(
             model=IMAGE_MODEL,
+            quality=IMAGE_QUALITY,
             image=f,
             prompt=heightmap_prompt,
             n=1,
