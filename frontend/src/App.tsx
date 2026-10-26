@@ -1,11 +1,9 @@
 /// <reference types="vite/client" />
 import { useState, useEffect } from 'react'
-import type { SessionState, Creation, BackgroundJob } from './types'
-import { saveCreation, loadCreations, uploadDataUrl } from './lib/supabase'
-import { GalleryPage } from './components/GalleryPage'
-import type { DbCreation } from './lib/supabase'
+import type { SessionState, BackgroundJob } from './types'
 import { useLang } from './contexts/LanguageContext'
 import { useAuth } from './contexts/AuthContext'
+import { useCreations } from './contexts/CreationsContext'
 import { SiteNav } from './components/SiteNav'
 import { StepIndicator } from './components/StepIndicator'
 import { PromptStep } from './components/PromptStep'
@@ -18,7 +16,6 @@ import { ReliefStep, SliderParams } from './components/ReliefStep'
 import { Model3dPromptStep } from './components/Model3dPromptStep'
 import { Model3dGeneratingStep } from './components/Model3dGeneratingStep'
 import { Model3dResultStep } from './components/Model3dResultStep'
-import { RecentPanel } from './components/RecentPanel'
 import { FlappyBird } from './components/FlappyBird'
 import { CommunityGallery } from './components/CommunityGallery'
 
@@ -31,12 +28,25 @@ const API = import.meta.env.VITE_API_URL ?? ''
 // otherwise a path on the (ephemeral) API server.
 const apiUrl = (u: string) => (u.startsWith('http') ? u : `${API}${u}`)
 
+// Longest step (image generation + STL build + upload) is well under this;
+// without a limit a request dropped by a backend restart spins forever.
+const REQUEST_TIMEOUT_MS = 4 * 60 * 1000
+
 async function apiFetch<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${API}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+  let res: Response
+  try {
+    res = await fetch(`${API}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    })
+  } catch (e) {
+    if (e instanceof DOMException && e.name === 'TimeoutError') {
+      throw new Error('The server took too long to respond — please try again.')
+    }
+    throw e
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(err.detail ?? 'Request failed')
@@ -54,101 +64,26 @@ export default function App() {
 
   // ── Background 3D job + recent creations ─────────────────────────────────
   const [bgJob,      setBgJob]      = useState<BackgroundJob | null>(null)
-  const [creations,  setCreations]  = useState<Creation[]>([])
-  const [showPanel,  setShowPanel]  = useState(false)
   const [showGame,   setShowGame]   = useState(false)
-  const [showGallery,setShowGallery]= useState(false)
+  const { creations, addCreation, setPublic, openRequest, clearOpenRequest } = useCreations()
 
   // ── Auth + language (auth/theme now come from shared contexts) ─────────────
   const { user, promptSignIn } = useAuth()
   const { t } = useLang()
 
-  // Reload the signed-in user's creations whenever auth changes.
-  useEffect(() => {
-    if (user) {
-      loadCreations().then(rows => {
-        setCreations(rows.map(r => ({
-          id:        r.id,
-          dbId:      r.id,
-          type:      r.type,
-          prompt:    r.prompt,
-          flowMode:  r.flow_mode as FlowMode,
-          thumbnail: r.thumbnail ?? null,
-          session:   (r.session ?? {}) as unknown as SessionState,
-          isPublic:  r.is_public ?? false,
-        })))
-      })
-    } else {
-      setCreations([])
-    }
-  }, [user])
-
-  async function persistCreation(c: Creation): Promise<string | null> {
-    if (!user) return null
-    const uid = Math.random().toString(36).slice(2, 8)
-
-    // Upload thumbnail to Supabase Storage if it's still a data URL
-    let thumbUrl = c.thumbnail
-    if (thumbUrl && thumbUrl.startsWith('data:')) {
-      const ext = thumbUrl.startsWith('data:image/webp') ? 'webp' : 'png'
-      const ct  = ext === 'webp' ? 'image/webp' : 'image/png'
-      thumbUrl = await uploadDataUrl(thumbUrl, `thumbnails/${uid}.${ext}`, ct) ?? null
-    }
-
-    // Strip data URLs from the session before writing to the DB.
-    // Generated images are several MB of base64 each — saving them in a JSONB
-    // column makes the row too large for Supabase to accept, causing silent failures.
-    // stlUrl / renderedUrl are already permanent URLs so they are kept.
-    const cleanSession = {
-      ...c.session,
-      images:      c.session.images.map(img => ({
-        ...img,
-        url: img.url.startsWith('data:') ? '' : img.url,
-      })),
-      heightmapUrl: c.session.heightmapUrl?.startsWith('data:') ? null : c.session.heightmapUrl,
-    }
-
-    const row = await saveCreation({
-      type:      c.type,
-      flow_mode: c.flowMode,
-      prompt:    c.prompt,
-      thumbnail: thumbUrl,
-      glb_url:   c.session.glbUrl ?? null,
-      stl_url:   c.session.stlUrl ?? null,
-      session:   cleanSession as unknown as Record<string, unknown>,
-    })
-    if (!row) console.warn('persistCreation: saveCreation returned null — check Supabase logs')
-    return row?.id ?? null
-  }
-
-  function addCreation(c: Omit<Creation, 'id' | 'dbId' | 'isPublic'>) {
-    const entry: Creation = { ...c, id: Math.random().toString(36).slice(2, 8), dbId: null, isPublic: false }
-    setCreations(prev => [entry, ...prev])
-    // Persist to DB in background and store the returned DB id
-    persistCreation(entry).then(dbId => {
-      if (dbId) {
-        setCreations(prev => prev.map(p => p.id === entry.id ? { ...p, dbId } : p))
-      }
-    })
-  }
-
   function handlePublishToggle(creationId: string, nowPublic: boolean) {
-    setCreations(prev => prev.map(c => c.id === creationId ? { ...c, isPublic: nowPublic } : c))
-    // Also update session if that creation is currently viewed
-    setCurrentCreationId(id => id)  // no-op, just here for clarity
+    setPublic(creationId, nowPublic)
   }
 
-  // Track which creation is currently being viewed
-  const [currentCreationId, setCurrentCreationId] = useState<string | null>(null)
 
-  function handleSelectCreation(id: string) {
-    const c = creations.find(x => x.id === id)
-    if (!c) return
-    setSession(c.session)
-    setFlowMode(c.flowMode)
+  // Open a saved creation chosen from Recent / My Creations (on any page)
+  useEffect(() => {
+    if (!openRequest) return
+    setSession(openRequest.session)
+    setFlowMode(openRequest.flowMode)
     setStep(4)
-    setShowPanel(false)
-  }
+    clearOpenRequest()
+  }, [openRequest, clearOpenRequest])
 
   // ── AI flow: Step 1 → 2 ─────────────────────────────────────────────────
   async function handleGenerate(prompt: string, orient: Orientation = 'portrait') {
@@ -389,48 +324,7 @@ export default function App() {
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
 
       {/* Header — shared top nav (AI Craft | Projects) plus AI-specific extras */}
-      <SiteNav rightExtra={<>
-        {/* My Creations (AI gallery overlay) */}
-        <button
-          onClick={() => setShowGallery(true)}
-          style={{
-            padding: '5px 13px', borderRadius: 20, cursor: 'pointer',
-            background: 'var(--surface2)', border: '1px solid var(--border)',
-            fontSize: 12, fontWeight: 600, color: 'var(--text-dim)',
-            transition: 'all .2s',
-          }}
-        >
-          📁 My Creations
-        </button>
-
-        {/* Recent creations button */}
-        {creations.length > 0 && (
-          <button
-            onClick={() => setShowPanel(p => !p)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 7,
-              padding: '6px 12px',
-              background: showPanel ? 'rgba(249,115,22,.15)' : 'var(--surface2)',
-              border: `1px solid ${showPanel ? 'var(--accent)' : 'var(--border)'}`,
-              borderRadius: 20, cursor: 'pointer',
-              transition: 'all .2s',
-            }}
-          >
-            <span style={{ fontSize: 13 }}>🕐</span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: showPanel ? 'var(--accent)' : 'var(--text-dim)' }}>
-              {t.recent}
-            </span>
-            <span style={{
-              width: 18, height: 18, borderRadius: '50%',
-              background: 'var(--accent)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 10, fontWeight: 700, color: '#fff',
-            }}>
-              {creations.length}
-            </span>
-          </button>
-        )}
-      </>} />
+      <SiteNav />
 
       {/* Step indicator — advance visually through 3D model steps during background job */}
       {(() => {
@@ -633,7 +527,7 @@ export default function App() {
         )}
 
         {/* ── Step 4: relief ── */}
-        {step === 4 && flowMode !== 'model3d' && session && session.heightmapUrl && session.stlUrl && selectedImage && (
+        {step === 4 && flowMode !== 'model3d' && session && session.stlUrl && selectedImage && (
           <ReliefStep
             prompt={session.prompt}
             stlUrl={session.stlUrl}
@@ -651,10 +545,10 @@ export default function App() {
             stlUrl={session.stlUrl}
             renderedUrl={session.renderedUrl ?? undefined}
             sessionId={session.sessionId}
-            dbId={currentCreationId ? (creations.find(c => c.id === currentCreationId)?.dbId ?? null) : (creations[0]?.dbId ?? null)}
-            isPublic={currentCreationId ? (creations.find(c => c.id === currentCreationId)?.isPublic ?? false) : (creations[0]?.isPublic ?? false)}
+            dbId={creations[0]?.dbId ?? null}
+            isPublic={creations[0]?.isPublic ?? false}
             onPublish={nowPublic => {
-              const cid = currentCreationId ?? creations[0]?.id
+              const cid = creations[0]?.id
               if (cid) handlePublishToggle(cid, nowPublic)
             }}
             onStartOver={handleStartOver}
@@ -835,32 +729,6 @@ export default function App() {
             <span>{t.playWhileWait}</span>
           </button>
         </div>
-      )}
-
-      {/* ── Recent creations panel ── */}
-      {showPanel && (
-        <RecentPanel
-          creations={creations}
-          onSelect={handleSelectCreation}
-          onClose={() => setShowPanel(false)}
-        />
-      )}
-
-      {/* ── Gallery page ── */}
-      {showGallery && (
-        <GalleryPage
-          user={user}
-          onClose={() => setShowGallery(false)}
-          onLoad={(row: DbCreation) => {
-            // Load a gallery creation into the viewer
-            if (row.session) {
-              setSession(row.session as unknown as SessionState)
-              setFlowMode(row.flow_mode as FlowMode)
-              setStep(4)
-              setShowGallery(false)
-            }
-          }}
-        />
       )}
 
     </div>

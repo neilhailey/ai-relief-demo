@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useTheme } from '../contexts/ThemeContext'
 import { useLang } from '../contexts/LanguageContext'
+import { useCreations } from '../contexts/CreationsContext'
 
 interface Props {
   /** Page-specific buttons rendered left of the shared controls (e.g. My Creations). */
@@ -12,7 +13,8 @@ interface Props {
 export function SiteNav({ rightExtra }: Props) {
   const { user, signOut, promptSignIn } = useAuth()
   const { theme, toggle: toggleTheme }  = useTheme()
-  const { lang, toggle: toggleLang }    = useLang()
+  const { lang, toggle: toggleLang, t } = useLang()
+  const { creations, showRecent, toggleRecent, openGallery } = useCreations()
   const navigate = useNavigate()
 
   const tabStyle = ({ isActive }: { isActive: boolean }): React.CSSProperties => ({
@@ -65,6 +67,36 @@ export function SiteNav({ rightExtra }: Props) {
       {/* Right: page extras + shared controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         {rightExtra}
+
+        <button onClick={openGallery} style={{ ...pill, fontWeight: 600 }}>
+          📁 My Creations
+        </button>
+
+        {user && (
+          <button
+            onClick={toggleRecent}
+            style={{
+              ...pill, fontWeight: 600,
+              display: 'flex', alignItems: 'center', gap: 7,
+              background: showRecent ? 'rgba(249,115,22,.15)' : 'var(--surface2)',
+              border: `1px solid ${showRecent ? 'var(--accent)' : 'var(--border)'}`,
+              color: showRecent ? 'var(--accent)' : 'var(--text-dim)',
+            }}
+          >
+            <span style={{ fontSize: 13 }}>🕐</span>
+            {t.recent}
+            {creations.length > 0 && (
+              <span style={{
+                minWidth: 18, height: 18, padding: '0 4px', borderRadius: 9,
+                background: 'var(--accent)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10, fontWeight: 700, color: '#fff',
+              }}>
+                {creations.length}
+              </span>
+            )}
+          </button>
+        )}
 
         <button
           onClick={() => navigate('/projects/new')}
