@@ -17,7 +17,7 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 
-def _upload_sync(storage_path: str, data: bytes, content_type: str) -> str | None:
+def _upload_sync(storage_path: str, data: bytes, content_type: str, attempts: int = 2) -> str | None:
     sb_url = os.getenv("SUPABASE_URL", "")
     sb_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
     if not sb_url or not sb_key:
@@ -26,16 +26,23 @@ def _upload_sync(storage_path: str, data: bytes, content_type: str) -> str | Non
     try:
         from supabase import create_client
         sb = create_client(sb_url, sb_key)
-        sb.storage.from_("models").upload(
-            storage_path, data,
-            file_options={"content-type": content_type, "upsert": "true"},
-        )
-        public = sb.storage.from_("models").get_public_url(storage_path)
-        logger.info("Uploaded %s → %s", storage_path, public)
-        return public
     except Exception as exc:
-        logger.warning("Supabase upload of %s failed: %s", storage_path, exc)
+        logger.warning("Supabase client setup failed: %s", exc)
         return None
+    # Storage occasionally times out (HTTP 544), so retry before giving up
+    for attempt in range(1, attempts + 1):
+        try:
+            sb.storage.from_("models").upload(
+                storage_path, data,
+                file_options={"content-type": content_type, "upsert": "true"},
+            )
+            public = sb.storage.from_("models").get_public_url(storage_path)
+            logger.info("Uploaded %s → %s", storage_path, public)
+            return public
+        except Exception as exc:
+            logger.warning("Supabase upload of %s failed (attempt %d/%d): %s",
+                           storage_path, attempt, attempts, exc)
+    return None
 
 
 async def upload_relief_stl(stl_path: Path, session_id: str) -> str | None:

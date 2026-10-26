@@ -244,11 +244,11 @@ async def api_relief(req: ReliefRequest):
             draft_angle=req.draft_angle,
         )
 
-        # Permanent copies: Render's disk is wiped on restart/deploy
-        stl_public, thumb_public = await asyncio.gather(
-            upload_relief_stl(stl_path, req.session_id),
-            upload_thumbnail(image_path, req.session_id),
-        )
+        # Permanent copies: Render's disk is wiped on restart/deploy.
+        # Sequential, small thumbnail first: in parallel the ~25 MB STL upload
+        # starved it and Supabase timed the thumbnail out.
+        thumb_public = await upload_thumbnail(image_path, req.session_id)
+        stl_public   = await upload_relief_stl(stl_path, req.session_id)
 
         import base64 as _b64
         heightmap_b64 = _b64.b64encode(heightmap_path.read_bytes()).decode()
